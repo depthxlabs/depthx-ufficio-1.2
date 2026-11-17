@@ -1,6 +1,6 @@
 """MOTORE DELLA RICERCA SU BRAVE, Ufficio 1.2 Planimetrie 3D, area Ricerca (capo area Adrian).
 
-Lo usano i ricercatori che partono dai portali: Max (agenzie presenti sui portali) e Sam (progetti non ancora pronti).
+Lo usano Max (agenzie presenti sui portali), Sam (progetti non ancora pronti) e Brian (profili Instagram pubblici degli agenti).
 I portali bloccano le visite automatiche, quindi non si aprono mai: si usa Brave Search API, la ricerca ufficiale
 che restituisce le pagine dei portali già pubblicate sul web (regola 7: mai aggirare blocchi o captcha).
 1. Brave trova le pagine della zona sui portali (agenzie per Max, nuove costruzioni e crowdfunding per Sam).
@@ -30,6 +30,11 @@ RICERCATORI = {
             "ricerche": ["site:immobiliare.it/agenzie-immobiliari {citta}", "site:idealista.it/pro {citta} agenzia",
                          "site:casa.it/agenzie {citta}"],
             "strumento": "Brave Search API (pagina agenzia sul portale) + sito"},
+    "Brian": {"ruolo": "Ricerca agenti immobiliari singoli", "tipo": "agente", "sigla": "BRI",
+              "foglio": "1oLoNTwnXOpvMdt2OsgD7R_eIxZOiiTo8iyk9dYPVlyA",
+              "ricerche": ['site:instagram.com "agente immobiliare" {citta}', 'site:instagram.com "consulente immobiliare" {citta}',
+                           'site:instagram.com "real estate agent" {citta}'],
+              "strumento": "Brave Search API (profilo Instagram pubblico)"},
     "Sam": {"ruolo": "Ricerca progetti non ancora pronti", "tipo": "progetto non ancora pronto", "sigla": "SAM",
             "foglio": "1HpITMZXbXpEdVjUhiShQpH-TARhIjORwzEL2Ie9l1gE",
             "ricerche": ["site:immobiliare.it/nuove-costruzioni {citta}", "nuova costruzione residenziale {citta} appartamenti in vendita classe A",
@@ -72,7 +77,7 @@ def e_portale(u):
 
 
 def nome_dal_titolo(titolo):
-    t = re.split(r"\s[|\-–·]\s", titolo)[0]
+    t = re.split(r"\s\(@|\s[|\-–·:]\s|:\s", titolo)[0]
     t = re.sub(r"^(Agenzia immobiliare|Nuove costruzioni|Nuova costruzione)\s*:?\s*", "", t, flags=re.I)
     return t.strip()[:80]
 
@@ -115,12 +120,29 @@ def main():
                 continue
             if "immobiliare.it/agenzie-immobiliari/" in u and not re.search(r"/agenzie-immobiliari/\d+/", u):
                 continue  # pagina elenco delle agenzie, non una singola agenzia
-            visti.add(nome.lower()); candidati.append((nome, u))
+            visti.add(nome.lower()); candidati.append((nome, u, ris.get("description", "")))
     M.stato(attivita=f"Brave: {len(candidati)} candidati, controllo uno per uno", agenzieTrovate=len(candidati))
 
-    for nome, link in candidati:
+    for nome, link, descrizione in candidati:
         if len(nuove) >= p.quota:
             break
+        # profilo Instagram (Brian): l'email si prende solo se è scritta nella bio pubblica mostrata da Brave
+        if "instagram.com/" in link:
+            if not re.match(r"https?://(www\.)?instagram\.com/[A-Za-z0-9_.]+/?$", link):
+                scarta("non è un profilo", nome); continue
+            email = [e.lower() for e in M.RE_EMAIL.findall(descrizione) if not M.SCARTA_EMAIL.search(e)]
+            if not email:
+                scarta("nessuna email nella bio pubblica", nome); continue
+            if email[0] in email_note:
+                scarta("già in un foglio della Ricerca", nome); continue
+            numero += 1
+            nuove.append([f"{cfg['sigla']}-{numero:04d}", oggi, p.dipendente, cfg["tipo"], nome, p.citta, p.provincia,
+                          "", email[0], "", link, "", link, "", cfg["strumento"], "da contattare", "email dalla bio Instagram"])
+            email_note.add(email[0])
+            M.scrivi_registro(f"Trovato {nome} su Instagram: {email[0]} (riga {nuove[-1][0]})")
+            M.stato(scritte=len(nuove), rimanenti=p.quota - len(nuove),
+                    ultime=([{"id": nuove[-1][0], "nome": nome, "email": email[0]}] + M.STATO["ultime"])[:5])
+            continue
         # 2. il sito ufficiale: se il risultato è già un sito proprio lo usa, altrimenti lo cerca
         sito = "" if e_portale(link) else f"https://{dominio(link)}/"
         if not sito:

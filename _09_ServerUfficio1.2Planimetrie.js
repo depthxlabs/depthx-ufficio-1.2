@@ -51,12 +51,18 @@ let cacheChiLavora = { quando: 0, dati: {} };
 const cacheStato = {};
 
 require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerConLogEControlloAcceso').avviaServer('Ufficio12Planimetrie', {
-  // GET /ChiStaLavorando?fogli=id1,id2,...  ->  { id: true/false } per accendere i puntini nella stanza
+  // GET /ChiStaLavorando?fogli=id1,id2,...  ->  { id: { inCorso, attivita, zona, scritte, quota, ... } } per i puntini, il conteggio e i capi area
   'GET /ChiStaLavorando': async ({ indirizzo }) => {
     const fogli = (indirizzo.searchParams.get('fogli') || '').split(',').filter(f => /^[A-Za-z0-9_-]{20,}$/.test(f)).slice(0, 60);
     if (Date.now() - cacheChiLavora.quando > 30000) {
       const dati = {};
-      for (const f of fogli) { try { const s = await leggiStato(f); dati[f] = !!(s.esiste && s.inCorso); } catch { dati[f] = false; } }
+      for (const f of fogli) {
+        try {
+          const s = await leggiStato(f);
+          dati[f] = s.esiste ? { inCorso: !!s.inCorso, attivita: s.attivita || '', zona: s.zona || '', scritte: s.scritte || 0, quota: s.quota || 0,
+                                 aggiornato: s.aggiornato || '', fine: s.fine || '', esito: s.esito || '' } : { inCorso: false, mai: true };
+        } catch { dati[f] = { inCorso: false, errore: true }; }
+      }
       cacheChiLavora = { quando: Date.now(), dati };
     }
     return cacheChiLavora.dati;
