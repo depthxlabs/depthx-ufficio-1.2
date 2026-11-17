@@ -55,7 +55,9 @@ def piano():
     print(json.dumps(lavori, ensure_ascii=False, indent=1))
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
-            f.write("lavori=" + json.dumps(lavori, ensure_ascii=False) + "\n")
+            # niente parentesi graffe: GitHub nasconderebbe l'elenco scambiandolo per un pezzo della chiave Google
+            voci = [f"{l['dipendente']}|{l['citta']}|{l['provincia']}|{l['quota']}|{'maps' if l['maps'] else ''}|{'brave' if l['brave'] else ''}" for l in lavori]
+            f.write("lavori=" + json.dumps(voci, ensure_ascii=False) + "\n")
 
 
 def chiusura():
@@ -65,7 +67,11 @@ def chiusura():
         if len(a) > 6 and a[0] == oggi and a[6] == "assegnata" and a[1] in FOGLI:
             r = M.con_riprova(lambda: M.SESSIONE.get(f"https://sheets.googleapis.com/v4/spreadsheets/{FOGLI[a[1]]}/values/Stato!A2:B50"))
             stato = {x[0]: (x + [""])[1] for x in r.json().get("values", []) if x}
-            esito = stato.get("esito") or stato.get("attivita") or "nessuno stato"
+            # vale solo lo stato del lavoro di oggi su quella città: altrimenti il ricercatore non ha lavorato
+            if not stato.get("inizio", "").startswith(oggi) or not stato.get("zona", "").startswith(a[2]):
+                esito = "non ha lavorato"
+            else:
+                esito = stato.get("esito") or stato.get("attivita") or "nessuno stato"
             M.con_riprova(lambda: M.SESSIONE.put(f"{URL}/Assegnazioni!G{i}", params={"valueInputOption": "RAW"},
                                                  json={"values": [[f"fatto: {esito}"]]}))
             print(a[1], a[2], esito)
