@@ -1,6 +1,6 @@
 """MOTORE DELLA RICERCA SU BRAVE, Ufficio 1.2 Planimetrie 3D, area Ricerca (capo area Adrian).
 
-Lo usano Max (agenzie presenti sui portali), Sam (progetti non ancora pronti) e Brian (profili Instagram pubblici degli agenti), Mia (agenzie di lusso).
+Lo usano Max (agenzie presenti sui portali), Sam (progetti non ancora pronti) e Brian (profili Instagram pubblici degli agenti), Mia (agenzie di lusso), Nora (annunci di privati).
 I portali bloccano le visite automatiche, quindi non si aprono mai: si usa Brave Search API, la ricerca ufficiale
 che restituisce le pagine dei portali già pubblicate sul web (regola 7: mai aggirare blocchi o captcha).
 1. Brave trova le pagine della zona sui portali (agenzie per Max, nuove costruzioni e crowdfunding per Sam).
@@ -32,9 +32,15 @@ RICERCATORI = {
             "strumento": "Brave Search API (pagina agenzia sul portale) + sito"},
     "Brian": {"ruolo": "Ricerca agenti immobiliari singoli", "tipo": "agente", "sigla": "BRI",
               "foglio": "1oLoNTwnXOpvMdt2OsgD7R_eIxZOiiTo8iyk9dYPVlyA",
-              "ricerche": ['site:instagram.com "agente immobiliare" {citta}', 'site:instagram.com "consulente immobiliare" {citta}',
-                           'site:instagram.com "real estate agent" {citta}'],
+              "ricerche": ['site:instagram.com "real estate agent" {citta}', 'site:instagram.com "RE/MAX" agent {citta}',
+                           'site:instagram.com Tecnocasa agente {citta}', 'site:instagram.com "Engel & Völkers" {citta}',
+                           'site:instagram.com Gabetti agente {citta}', 'site:instagram.com "agente immobiliare" {citta}'],
               "strumento": "Brave Search API (profilo Instagram pubblico)"},
+    "Nora": {"ruolo": "Ricerca privati con annunci sui portali", "tipo": "privato", "sigla": "NOR",
+             "foglio": "1INosFpaC02tQIKCvgZBUkTWaCceWz7HVa9Ce0ELivSQ",
+             "ricerche": ['site:subito.it vendita appartamento privato planimetria {citta}', 'site:immobiliare.it privato planimetria vendita {citta}',
+                          'site:idealista.it privato planimetria {citta}'],
+             "strumento": "Brave Search API (annuncio di privato sul portale)"},
     "Mia": {"ruolo": "Ricerca agenzie di immobili di lusso", "tipo": "agenzia lusso", "sigla": "MIA",
             "foglio": "1ZduNopPwanAVeuAFMZa12AghAkMyA351-Fswn5-ttyU",
             "ricerche": ["agenzia immobiliare di lusso {citta}", "immobili di prestigio {citta} agenzia", "luxury real estate {citta}",
@@ -69,6 +75,10 @@ def brave(q, chiave, quanti=20):
         return brave(q, chiave, quanti)
     if r.status_code != 200:
         sys.exit(f"Brave Search: HTTP {r.status_code}")
+    # Brave dice quante ricerche restano: secondo e mese (es. "1, 987"); il pannello di Adrian lo mostra
+    rimaste = r.headers.get("X-RateLimit-Remaining", "")
+    if "," in rimaste:
+        M.STATO["braveRimasteMese"] = rimaste.split(",")[-1].strip()
     return r.json().get("web", {}).get("results", [])
 
 
@@ -121,16 +131,38 @@ def main():
         for ris in brave(q, chiave):
             u, nome = ris.get("url", ""), nome_dal_titolo(ris.get("title", ""))
             testo = (ris.get("title", "") + " " + ris.get("description", "")).lower()
-            if not nome or nome.lower() in visti or p.citta.lower() not in testo + u.lower():
+            # per i profili Instagram la città è già nella ricerca: non si chiede che compaia anche nel risultato
+            if not nome or nome.lower() in visti or ("instagram.com/" not in u and p.citta.lower() not in testo + u.lower()):
                 continue
             if "immobiliare.it/agenzie-immobiliari/" in u and not re.search(r"/agenzie-immobiliari/\d+/", u):
                 continue  # pagina elenco delle agenzie, non una singola agenzia
             visti.add(nome.lower()); candidati.append((nome, u, ris.get("description", "")))
     M.stato(attivita=f"Brave: {len(candidati)} candidati, controllo uno per uno", agenzieTrovate=len(candidati))
 
+    link_noti = set()
+    if p.dipendente == "Nora":  # gli annunci già scritti da Nora, per non ripeterli
+        r = M.con_riprova(lambda: M.SESSIONE.get(f"https://sheets.googleapis.com/v4/spreadsheets/{cfg['foglio']}/values/{M.SCHEDA}!M2:M"))
+        link_noti = {x[0] for x in r.json().get("values", []) if x}
     for nome, link, descrizione in candidati:
         if len(nuove) >= p.quota:
             break
+        # annuncio di un privato (Nora): niente email, si contatta dal modulo del portale
+        if p.dipendente == "Nora":
+            if not re.search(r"subito\.it/.+\d+\.htm|immobiliare\.it/annunci/\d+|idealista\.it/immobile/\d+", link):
+                scarta("non è un singolo annuncio", nome); continue
+            if link in link_noti:
+                scarta("già nel foglio di Nora", nome); continue
+            if re.search(r"agenzia|immobiliare srl|real estate", descrizione, re.I):
+                scarta("pubblicato da un'agenzia", nome); continue
+            numero += 1
+            pl = "sì" if re.search(r"planimetri", descrizione, re.I) else ""
+            nuove.append([f"{cfg['sigla']}-{numero:04d}", oggi, p.dipendente, cfg["tipo"], nome, p.citta, p.provincia,
+                          "", "", "", "", "", link, pl, cfg["strumento"], "da contattare", "contatto dal modulo del portale"])
+            link_noti.add(link)
+            M.scrivi_registro(f"Trovato annuncio privato: {nome} (riga {nuove[-1][0]})")
+            M.stato(scritte=len(nuove), rimanenti=p.quota - len(nuove),
+                    ultime=([{"id": nuove[-1][0], "nome": nome, "email": "modulo del portale"}] + M.STATO["ultime"])[:5])
+            continue
         # profilo Instagram (Brian): l'email si prende solo se è scritta nella bio pubblica mostrata da Brave
         if "instagram.com/" in link:
             if not re.match(r"https?://(www\.)?instagram\.com/[A-Za-z0-9_.]+/?$", link):

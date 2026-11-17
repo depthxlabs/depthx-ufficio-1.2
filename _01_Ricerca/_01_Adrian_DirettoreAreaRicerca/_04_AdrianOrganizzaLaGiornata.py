@@ -1,16 +1,18 @@
-"""ADRIAN ORGANIZZA LA GIORNATA, Ufficio 1.2 Planimetrie 3D, area Ricerca.
+"""ADRIAN ORGANIZZA IL LAVORO, Ufficio 1.2 Planimetrie 3D, area Ricerca.
 
-Adrian gestisce l'area Ricerca: zone, quote e agenti. Hector coordina il flusso intero.
-Il foglio "_00_ZoneEQuote" è il suo strumento: il Signore lo cambia quando vuole, Adrian lo segue.
+Adrian gestisce l'area Ricerca: obiettivi, zone, quote e agenti. Hector coordina il flusso intero.
+Il suo strumento è il foglio "_00_ZoneEQuote" (schede Obiettivi, Zone, Ricercatori, Assegnazioni, Quote servizi).
+Michele scrive l'obiettivo dal pannello di Adrian nel Centro Gestione; Adrian lo divide tra i suoi ricercatori.
 
-  --fase piano      legge Zone, Ricercatori e Assegnazioni; a ogni ricercatore attivo dà la prossima zona
-                    che non ha ancora fatto (prima le priorità più alte; finite tutte, riparte dalla più vecchia),
-                    scrive le assegnazioni del giorno e passa l'elenco a GitHub.
-  --fase chiusura   a fine giornata legge l'esito di ogni ricercatore dalla sua scheda "Stato"
-                    e lo scrive accanto all'assegnazione.
+  --fase piano      ogni 3 ore: per ogni obiettivo attivo non ancora raggiunto dà a ogni suo ricercatore libero
+                    la prossima zona non ancora fatta, con quota = il minimo tra la sua quota e quanto manca.
+                    Senza obiettivi attivi non assegna niente e non consuma minuti.
+  --fase controllo  ogni ora: per ogni assegnazione aperta guarda se il ricercatore ha finito, scrive l'esito
+                    e le righe scritte davvero (righe del foglio adesso meno righe al momento dell'assegnazione),
+                    aggiorna i contatti raggiunti di ogni obiettivo e le quote dei servizi.
 Google Sheet: una richiesta ogni 6 secondi, come tutti i dipendenti.
 """
-import argparse, datetime, json, os, sys
+import argparse, datetime, json, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import importlib
 M = importlib.import_module("_01_MotoreDellaRicercaSuMaps")
@@ -20,64 +22,114 @@ ZONE_E_QUOTE = "1Sr9qOixgP9_snFesfBHcBoVSBxW8YKCAIJvPLHmGRIA"
 URL = f"https://sheets.googleapis.com/v4/spreadsheets/{ZONE_E_QUOTE}/values"
 FOGLI = {**{n: c["foglio"] for n, c in M.RICERCATORI.items()}, **{n: c["foglio"] for n, c in B.RICERCATORI.items()}}
 MOTORI = {n: (["maps"] if n in M.RICERCATORI else []) + (["brave"] if n in B.RICERCATORI else []) for n in FOGLI}
+ORA = lambda: datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+# Assegnazioni: Data e ora | Ricercatore | Città | Provincia | Quota | Assegnata da | Esito | Righe prima | Obiettivo
+# Obiettivi:    Obiettivo | Ricercatori | Contatti da raggiungere | Dal | Entro | Zone | Raggiunti | Stato
 
 
-def leggi(scheda):
-    r = M.con_riprova(lambda: M.SESSIONE.get(f"{URL}/{scheda}!A2:G1000"))
+def leggi(intervallo):
+    r = M.con_riprova(lambda: M.SESSIONE.get(f"{URL}/{intervallo}"))
     r.raise_for_status()
     return r.json().get("values", [])
 
 
+def scrivi(intervallo, valori):
+    M.con_riprova(lambda: M.SESSIONE.put(f"{URL}/{intervallo}", params={"valueInputOption": "USER_ENTERED"},
+                                         json={"values": valori})).raise_for_status()
+
+
+def righe_del_foglio(nome):
+    r = M.con_riprova(lambda: M.SESSIONE.get(f"https://sheets.googleapis.com/v4/spreadsheets/{FOGLI[nome]}/values/{M.SCHEDA}!A2:A"))
+    return len(r.json().get("values", []))
+
+
 def piano():
-    oggi = datetime.date.today().isoformat()
-    zone = sorted([z for z in leggi("Zone") if len(z) >= 4 and z[3].strip().lower() == "sì"],
+    zone = sorted([z for z in leggi("Zone!A2:E200") if len(z) >= 4 and z[3].strip().lower() == "sì"],
                   key=lambda z: int(z[4]) if len(z) > 4 and str(z[4]).isdigit() else 999)
-    ricercatori = [r for r in leggi("Ricercatori") if len(r) >= 3 and r[1].strip().lower() == "sì"]
-    storia = leggi("Assegnazioni")
-    if not os.environ.get("SOLO_PROVA") and any(a and a[0] == oggi and len(a) > 6 and a[6] == "assegnata" for a in storia):
-        sys.exit("Le assegnazioni di oggi ci sono già: Adrian non assegna due volte lo stesso giorno.")
+    quote = {r[0]: int(r[2]) for r in leggi("Ricercatori!A2:E50")
+             if len(r) >= 3 and r[1].strip().lower() == "sì" and str(r[2]).isdigit() and r[0] in FOGLI}
+    storia = leggi("Assegnazioni!A2:I2000")
+    obiettivi = leggi("Obiettivi!A2:H100")
+    occupati = {a[1] for a in storia if len(a) > 6 and a[6] == "assegnata"}
     lavori, nuove = [], []
-    for nome, _, quota, *_ in ricercatori:
-        if nome not in FOGLI or not str(quota).isdigit() or int(quota) <= 0 or not zone:
+    for i, o in enumerate(obiettivi, start=2):
+        o = o + [""] * (8 - len(o))
+        if o[7].strip().lower() != "attivo" or not str(o[2]).isdigit():
             continue
-        fatte = {}
-        for a in storia:
-            if len(a) > 2 and a[1] == nome:
-                fatte[a[2]] = max(fatte.get(a[2], ""), a[0])
-        mai = [z for z in zone if z[0] not in fatte]
-        z = mai[0] if mai else min(zone, key=lambda z: fatte.get(z[0], ""))
-        lavori.append({"dipendente": nome, "citta": z[0], "provincia": z[1], "quota": int(quota),
-                       "maps": "maps" in MOTORI[nome], "brave": "brave" in MOTORI[nome]})
-        nuove.append([oggi, nome, z[0], z[1], int(quota), "Adrian", "assegnata"])
+        if o[4] and o[4] < datetime.date.today().isoformat():
+            continue  # scaduto
+        manca = int(o[2]) - (int(o[6]) if str(o[6]).isdigit() else 0)
+        if manca <= 0:
+            continue
+        chi = list(quote) if o[1].strip().lower() in ("", "tutti") else [n.strip() for n in o[1].split(",") if n.strip() in quote]
+        zone_ob = [z for z in zone if not o[5].strip() or z[0].lower() in [c.strip().lower() for c in o[5].split(",")]]
+        for nome in chi:
+            if manca <= 0 or nome in occupati or not zone_ob:
+                continue
+            fatte = {}
+            for a in storia:
+                if len(a) > 2 and a[1] == nome:
+                    fatte[a[2]] = max(fatte.get(a[2], ""), a[0])
+            mai = [z for z in zone_ob if z[0] not in fatte]
+            z = mai[0] if mai else min(zone_ob, key=lambda z: fatte.get(z[0], ""))
+            q = min(quote[nome], manca)
+            manca -= q
+            occupati.add(nome)
+            lavori.append(f"{nome}|{z[0]}|{z[1]}|{q}|{'maps' if 'maps' in MOTORI[nome] else ''}|{'brave' if 'brave' in MOTORI[nome] else ''}")
+            nuove.append([ORA(), nome, z[0], z[1], q, "Adrian", "assegnata", righe_del_foglio(nome), o[0]])
     if nuove and not os.environ.get("SOLO_PROVA"):
         M.con_riprova(lambda: M.SESSIONE.post(f"{URL}/Assegnazioni!A1:append", params={"valueInputOption": "USER_ENTERED",
                       "insertDataOption": "INSERT_ROWS"}, json={"values": nuove})).raise_for_status()
     print(json.dumps(lavori, ensure_ascii=False, indent=1))
     if os.environ.get("GITHUB_OUTPUT"):
+        # niente parentesi graffe: GitHub nasconderebbe l'elenco scambiandolo per un pezzo della chiave Google
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
-            # niente parentesi graffe: GitHub nasconderebbe l'elenco scambiandolo per un pezzo della chiave Google
-            voci = [f"{l['dipendente']}|{l['citta']}|{l['provincia']}|{l['quota']}|{'maps' if l['maps'] else ''}|{'brave' if l['brave'] else ''}" for l in lavori]
-            f.write("lavori=" + json.dumps(voci, ensure_ascii=False) + "\n")
+            f.write("lavori=" + json.dumps(lavori, ensure_ascii=False) + "\n")
 
 
-def chiusura():
-    oggi = datetime.date.today().isoformat()
-    storia = leggi("Assegnazioni")
+def controllo():
+    storia = leggi("Assegnazioni!A2:I2000")
+    adesso = datetime.datetime.now()
     for i, a in enumerate(storia, start=2):
-        if len(a) > 6 and a[0] == oggi and a[6] == "assegnata" and a[1] in FOGLI:
-            r = M.con_riprova(lambda: M.SESSIONE.get(f"https://sheets.googleapis.com/v4/spreadsheets/{FOGLI[a[1]]}/values/Stato!A2:B50"))
-            stato = {x[0]: (x + [""])[1] for x in r.json().get("values", []) if x}
-            # vale solo lo stato del lavoro di oggi su quella città: altrimenti il ricercatore non ha lavorato
-            if not stato.get("inizio", "").startswith(oggi) or not stato.get("zona", "").startswith(a[2]):
-                esito = "non ha lavorato"
-            else:
-                esito = stato.get("esito") or stato.get("attivita") or "nessuno stato"
-            M.con_riprova(lambda: M.SESSIONE.put(f"{URL}/Assegnazioni!G{i}", params={"valueInputOption": "RAW"},
-                                                 json={"values": [[f"fatto: {esito}"]]}))
-            print(a[1], a[2], esito)
+        a = a + [""] * (9 - len(a))
+        if a[6] != "assegnata" or a[1] not in FOGLI:
+            continue
+        r = M.con_riprova(lambda: M.SESSIONE.get(f"https://sheets.googleapis.com/v4/spreadsheets/{FOGLI[a[1]]}/values/Stato!A2:B50"))
+        stato = {x[0]: (x + [""])[1] for x in r.json().get("values", []) if x}
+        assegnata = datetime.datetime.strptime(a[0][:16], "%Y-%m-%d %H:%M") if len(a[0]) >= 16 else adesso
+        iniziato = stato.get("inizio", "") >= assegnata.strftime("%Y-%m-%dT%H:%M") and stato.get("zona", "").startswith(a[2])
+        if iniziato and stato.get("inCorso") == "True":
+            continue  # sta ancora lavorando
+        if not iniziato and adesso - assegnata < datetime.timedelta(hours=3):
+            continue  # non è ancora partito: si aspetta
+        if iniziato:
+            prima = int(a[7]) if str(a[7]).isdigit() else None
+            scritte = righe_del_foglio(a[1]) - prima if prima is not None else None
+            esito = f"fatto: {scritte} righe scritte" if scritte is not None else f"fatto: {stato.get('esito', '')}"
+        else:
+            esito = "non ha lavorato"
+        scrivi(f"Assegnazioni!G{i}", [[esito]])
+        print(a[1], a[2], esito)
+    aggiorna_obiettivi()
+
+
+def aggiorna_obiettivi():
+    storia = leggi("Assegnazioni!A2:I2000")
+    obiettivi = leggi("Obiettivi!A2:H100")
+    for i, o in enumerate(obiettivi, start=2):
+        o = o + [""] * (8 - len(o))
+        if not o[0]:
+            continue
+        fatti = sum(int(m.group(1)) for a in storia if len(a) > 8 and a[8] == o[0]
+                    for m in [re.match(r"fatto: (\d+) righe", a[6] if len(a) > 6 else "")] if m)
+        stato = o[7] or "attivo"
+        if str(o[2]).isdigit() and fatti >= int(o[2]) and stato == "attivo":
+            stato = "raggiunto"
+        scrivi(f"Obiettivi!G{i}:H{i}", [[fatti, stato]])
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--fase", choices=["piano", "chiusura"], required=True)
-    piano() if p.parse_args().fase == "piano" else chiusura()
+    p.add_argument("--fase", choices=["piano", "controllo", "chiusura"], required=True)
+    f = p.parse_args().fase
+    piano() if f == "piano" else controllo()

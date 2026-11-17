@@ -1,6 +1,6 @@
 """MOTORE DELLA RICERCA SU MAPS, Ufficio 1.2 Planimetrie 3D, area Ricerca (capo area Adrian).
 
-Lo usano i ricercatori che lavorano con Google Maps e i siti: Anna, Brian, Mia, Liam, Ester, Mark, Elen, Leo.
+Lo usano i ricercatori che lavorano con Google Maps e i siti: Anna, Brian, Mia, Kera, Liam, Ester, Mark, Elen, Leo.
 Segue le regole della Ricerca (skill di Adrian, _04_LeRegoleFerree.md):
 1. Cerca su Google Places API (New) le parole del ricercatore nella città assegnata.
 2. Per ogni risultato apre il sito (pagina principale e fino a due pagine contatti) e prende l'email pubblicata.
@@ -27,6 +27,8 @@ RICERCATORI = {
               "foglio": "1oLoNTwnXOpvMdt2OsgD7R_eIxZOiiTo8iyk9dYPVlyA"},
     "Mia":   {"ruolo": "Ricerca agenzie di immobili di lusso", "parole": ["agenzia immobiliare di lusso", "immobili di prestigio", "luxury real estate"], "tipo": "agenzia lusso", "sigla": "MIA",
               "foglio": "1ZduNopPwanAVeuAFMZa12AghAkMyA351-Fswn5-ttyU"},
+    "Kera":  {"ruolo": "Ricerca case vacanza", "parole": ["casa vacanza", "affittacamere", "bed and breakfast"], "tipo": "casa vacanza", "sigla": "KER",
+              "foglio": "1mnTcNUB9ZG0h12b9tWinbGDKYted-22hxVDB-_qeYwY"},
     "Liam":  {"ruolo": "Ricerca costruttori e imprese edili", "parole": ["impresa edile", "impresa di costruzioni"], "tipo": "costruttore", "sigla": "LIA",
               "foglio": "1NsTzPQL3q60XnrZTV_DfKqvI56VVFAeJ4wK0ovPBVt0"},
     "Ester": {"ruolo": "Ricerca affitti brevi, singoli e gestori", "parole": ["gestione affitti brevi", "property manager affitti brevi"], "tipo": "gestore affitti brevi", "sigla": "EST",
@@ -41,7 +43,7 @@ RICERCATORI = {
 # Tutti i fogli della Ricerca, per il controllo dei doppioni (regola 1)
 TUTTI_I_FOGLI = [r["foglio"] for r in RICERCATORI.values()] + [
     "12FYuOBjRHmsMpAw7zQ6xkqBPBNFzjATExikSSiskM08",
-    "1INosFpaC02tQIKCvgZBUkTWaCceWz7HVa9Ce0ELivSQ", "1mnTcNUB9ZG0h12b9tWinbGDKYted-22hxVDB-_qeYwY",
+    "1INosFpaC02tQIKCvgZBUkTWaCceWz7HVa9Ce0ELivSQ",
     "1-TSOMAI41Km1Y5JH55Kr-W0P3r3bfHCnc80RuKMBspQ", "1HpITMZXbXpEdVjUhiShQpH-TARhIjORwzEL2Ie9l1gE"]
 SCHEDA = "Contatti"
 AGENTE = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36"

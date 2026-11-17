@@ -1,11 +1,11 @@
 # La giornata della Ricerca (Ufficio 1.2 Planimetrie 3D): Adrian assegna zone e quote dal foglio "_00_ZoneEQuote",
 # i ricercatori lavorano al massimo 6 alla volta (Google Sheet: 60 richieste al minuto), poi Adrian scrive gli esiti.
-# Parte da sola ogni mattina alle 6:00 ora italiana (5:00 UTC d'inverno), oppure a mano da GitHub.
+# Parte da sola ogni 3 ore: Adrian assegna solo se c'è un obiettivo attivo non ancora raggiunto, oppure a mano da GitHub.
 # Ogni voce dell'elenco: dipendente|città|provincia|quota|maps|brave
-name: Ricerca 00 Giornata della Ricerca (Adrian)
+name: Ricerca 00 Ciclo della Ricerca ogni 3 ore (Adrian)
 on:
   schedule:
-    - cron: "0 5 * * *"
+    - cron: "0 */3 * * *"
   workflow_dispatch:
 concurrency: giornata-ricerca
 env:
@@ -55,7 +55,7 @@ jobs:
           if [ "$BRAVE" = "brave" ]; then python -I "$DIR/_03_MotoreDellaRicercaSuBrave.py" --dipendente "$NOME" --citta "$CITTA" --provincia "$PROV" --quota "$QUOTA" || ESITO=1; fi
           exit $ESITO
   chiusura:
-    name: Adrian scrive gli esiti
+    name: Adrian controlla chi ha finito
     needs: [piano, lavoro]
     if: always() && needs.piano.result == 'success'
     runs-on: ubuntu-latest
@@ -66,4 +66,4 @@ jobs:
       - run: pip install requests google-auth
       - env:
           CHIAVE_GOOGLE_SHEET: ${{ secrets.CHIAVE_GOOGLE_SHEET }}
-        run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_04_AdrianOrganizzaLaGiornata.py" --fase chiusura
+        run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_04_AdrianOrganizzaLaGiornata.py" --fase controllo
