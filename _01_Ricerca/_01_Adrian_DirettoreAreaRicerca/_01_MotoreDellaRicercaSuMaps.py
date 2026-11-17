@@ -1,6 +1,6 @@
 """MOTORE DELLA RICERCA SU MAPS, Ufficio 1.2 Planimetrie 3D, area Ricerca (capo area Adrian).
 
-Lo usano i ricercatori che lavorano con Google Maps e i siti: Anna, Brian, Liam, Ester, Mark, Elen, Leo.
+Lo usano i ricercatori che lavorano con Google Maps e i siti: Anna, Brian, Mia, Liam, Ester, Mark, Elen, Leo.
 Segue le regole della Ricerca (skill di Adrian, _04_LeRegoleFerree.md):
 1. Cerca su Google Places API (New) le parole del ricercatore nella città assegnata.
 2. Per ogni risultato apre il sito (pagina principale e fino a due pagine contatti) e prende l'email pubblicata.
@@ -25,6 +25,8 @@ RICERCATORI = {
               "foglio": "11Xfyu2Q3laVgP5pzw003xML0ZUur_4bq-lac9cb3T-E"},
     "Brian": {"ruolo": "Ricerca agenti immobiliari singoli", "parole": ["agente immobiliare", "consulente immobiliare"], "tipo": "agente", "sigla": "BRI",
               "foglio": "1oLoNTwnXOpvMdt2OsgD7R_eIxZOiiTo8iyk9dYPVlyA"},
+    "Mia":   {"ruolo": "Ricerca agenzie di immobili di lusso", "parole": ["agenzia immobiliare di lusso", "immobili di prestigio", "luxury real estate"], "tipo": "agenzia lusso", "sigla": "MIA",
+              "foglio": "1ZduNopPwanAVeuAFMZa12AghAkMyA351-Fswn5-ttyU"},
     "Liam":  {"ruolo": "Ricerca costruttori e imprese edili", "parole": ["impresa edile", "impresa di costruzioni"], "tipo": "costruttore", "sigla": "LIA",
               "foglio": "1NsTzPQL3q60XnrZTV_DfKqvI56VVFAeJ4wK0ovPBVt0"},
     "Ester": {"ruolo": "Ricerca affitti brevi, singoli e gestori", "parole": ["gestione affitti brevi", "property manager affitti brevi"], "tipo": "gestore affitti brevi", "sigla": "EST",

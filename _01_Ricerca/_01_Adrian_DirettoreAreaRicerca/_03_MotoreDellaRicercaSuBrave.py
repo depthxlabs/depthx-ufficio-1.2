@@ -1,6 +1,6 @@
 """MOTORE DELLA RICERCA SU BRAVE, Ufficio 1.2 Planimetrie 3D, area Ricerca (capo area Adrian).
 
-Lo usano Max (agenzie presenti sui portali), Sam (progetti non ancora pronti) e Brian (profili Instagram pubblici degli agenti).
+Lo usano Max (agenzie presenti sui portali), Sam (progetti non ancora pronti) e Brian (profili Instagram pubblici degli agenti), Mia (agenzie di lusso).
 I portali bloccano le visite automatiche, quindi non si aprono mai: si usa Brave Search API, la ricerca ufficiale
 che restituisce le pagine dei portali già pubblicate sul web (regola 7: mai aggirare blocchi o captcha).
 1. Brave trova le pagine della zona sui portali (agenzie per Max, nuove costruzioni e crowdfunding per Sam).
@@ -35,6 +35,11 @@ RICERCATORI = {
               "ricerche": ['site:instagram.com "agente immobiliare" {citta}', 'site:instagram.com "consulente immobiliare" {citta}',
                            'site:instagram.com "real estate agent" {citta}'],
               "strumento": "Brave Search API (profilo Instagram pubblico)"},
+    "Mia": {"ruolo": "Ricerca agenzie di immobili di lusso", "tipo": "agenzia lusso", "sigla": "MIA",
+            "foglio": "1ZduNopPwanAVeuAFMZa12AghAkMyA351-Fswn5-ttyU",
+            "ricerche": ["agenzia immobiliare di lusso {citta}", "immobili di prestigio {citta} agenzia", "luxury real estate {citta}",
+                         "Lionard {citta}", "Engel & Völkers {citta}", "Sotheby's International Realty {citta}", "Coldwell Banker {citta} prestigio"],
+            "strumento": "Brave Search API (agenzie di lusso) + sito"},
     "Sam": {"ruolo": "Ricerca progetti non ancora pronti", "tipo": "progetto non ancora pronto", "sigla": "SAM",
             "foglio": "1HpITMZXbXpEdVjUhiShQpH-TARhIjORwzEL2Ie9l1gE",
             "ricerche": ["site:immobiliare.it/nuove-costruzioni {citta}", "nuova costruzione residenziale {citta} appartamenti in vendita classe A",
