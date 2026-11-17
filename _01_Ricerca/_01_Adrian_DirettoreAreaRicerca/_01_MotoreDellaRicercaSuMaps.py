@@ -1,6 +1,6 @@
 """MOTORE DELLA RICERCA SU MAPS, Ufficio 1.2 Planimetrie 3D, area Ricerca (capo area Adrian).
 
-Lo usano i ricercatori che lavorano con Google Maps e i siti: Anna, Liam, Ester, Mark, Elen, Leo.
+Lo usano i ricercatori che lavorano con Google Maps e i siti: Anna, Brian, Liam, Ester, Mark, Elen, Leo.
 Segue le regole della Ricerca (skill di Adrian, _04_LeRegoleFerree.md):
 1. Cerca su Google Places API (New) le parole del ricercatore nella città assegnata.
 2. Per ogni risultato apre il sito (pagina principale e fino a due pagine contatti) e prende l'email pubblicata.
@@ -23,6 +23,8 @@ CHIAVE_SHEET = CARTELLA_CHIAVI + r"\_02_ChiaveGoogleSheet.json"
 RICERCATORI = {
     "Anna":  {"ruolo": "Ricerca agenzie immobiliari da Maps", "parole": ["agenzia immobiliare"], "tipo": "agenzia", "sigla": "ANN",
               "foglio": "11Xfyu2Q3laVgP5pzw003xML0ZUur_4bq-lac9cb3T-E"},
+    "Brian": {"ruolo": "Ricerca agenti immobiliari singoli", "parole": ["agente immobiliare", "consulente immobiliare"], "tipo": "agente", "sigla": "BRI",
+              "foglio": "1oLoNTwnXOpvMdt2OsgD7R_eIxZOiiTo8iyk9dYPVlyA"},
     "Liam":  {"ruolo": "Ricerca costruttori e imprese edili", "parole": ["impresa edile", "impresa di costruzioni"], "tipo": "costruttore", "sigla": "LIA",
               "foglio": "1NsTzPQL3q60XnrZTV_DfKqvI56VVFAeJ4wK0ovPBVt0"},
     "Ester": {"ruolo": "Ricerca affitti brevi, singoli e gestori", "parole": ["gestione affitti brevi", "property manager affitti brevi"], "tipo": "gestore affitti brevi", "sigla": "EST",
@@ -36,7 +38,7 @@ RICERCATORI = {
 }
 # Tutti i fogli della Ricerca, per il controllo dei doppioni (regola 1)
 TUTTI_I_FOGLI = [r["foglio"] for r in RICERCATORI.values()] + [
-    "12FYuOBjRHmsMpAw7zQ6xkqBPBNFzjATExikSSiskM08", "1oLoNTwnXOpvMdt2OsgD7R_eIxZOiiTo8iyk9dYPVlyA",
+    "12FYuOBjRHmsMpAw7zQ6xkqBPBNFzjATExikSSiskM08",
     "1INosFpaC02tQIKCvgZBUkTWaCceWz7HVa9Ce0ELivSQ", "1mnTcNUB9ZG0h12b9tWinbGDKYted-22hxVDB-_qeYwY",
     "1-TSOMAI41Km1Y5JH55Kr-W0P3r3bfHCnc80RuKMBspQ", "1HpITMZXbXpEdVjUhiShQpH-TARhIjORwzEL2Ie9l1gE"]
 SCHEDA = "Contatti"
@@ -64,12 +66,26 @@ def sessione_sheet():
 
 
 SESSIONE = sessione_sheet()
-STATO, FOGLIO = {}, {"id": ""}
+STATO, FOGLIO, ULTIMA = {}, {"id": ""}, {"t": 0.0}
+
+
+def con_riprova(fare, tentativi=6):
+    """Google Sheet a volte risponde 429 (troppe richieste): si aspetta e si riprova, mai perdere le righe."""
+    for n in range(tentativi):
+        r = fare()
+        if r.status_code != 429:
+            return r
+        time.sleep(10 * (n + 1))
+    return r
 
 
 def stato(**valori):
     """Aggiorna la scheda "Stato" del foglio del ricercatore: il Centro Gestione la legge ogni 3 secondi."""
     STATO.update(valori, aggiornato=datetime.datetime.now().isoformat(timespec="seconds"))
+    # al massimo un aggiornamento ogni 5 secondi; l'inizio e la fine si scrivono sempre
+    if time.time() - ULTIMA["t"] < 5 and "inCorso" not in valori:
+        return
+    ULTIMA["t"] = time.time()
     righe = [["Chiave", "Valore"]] + [[k, json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else str(v)] for k, v in STATO.items()]
     try:
         SESSIONE.put(f"https://sheets.googleapis.com/v4/spreadsheets/{FOGLIO['id']}/values/Stato!A1:B50",
@@ -158,7 +174,7 @@ def gia_noti():
     """Siti ed email presenti in tutti i fogli della Ricerca (regola 1: mai doppioni)."""
     siti, email = set(), set()
     for f in TUTTI_I_FOGLI:
-        r = SESSIONE.get(f"https://sheets.googleapis.com/v4/spreadsheets/{f}/values/{SCHEDA}!H2:I")
+        r = con_riprova(lambda: SESSIONE.get(f"https://sheets.googleapis.com/v4/spreadsheets/{f}/values/{SCHEDA}!H2:I"))
         if r.status_code == 200:
             for riga in r.json().get("values", []):
                 if riga and riga[0]:
@@ -182,7 +198,7 @@ def main():
     stato(dipendente=p.dipendente, ruolo=cfg["ruolo"], inCorso=True, attivita="Avvio", zona=f"{p.citta} ({p.provincia})",
           quota=p.quota, scritte=0, rimanenti=p.quota, sitiLetti=0, agenzieTrovate=0, scartati={}, sitoAttuale="", ultime=[],
           foglio=link_foglio, inizio=datetime.datetime.now().isoformat(timespec="seconds"), fine="", esito="")
-    r = SESSIONE.get(f"https://sheets.googleapis.com/v4/spreadsheets/{cfg['foglio']}/values/{SCHEDA}!A2:A")
+    r = con_riprova(lambda: SESSIONE.get(f"https://sheets.googleapis.com/v4/spreadsheets/{cfg['foglio']}/values/{SCHEDA}!A2:A"))
     r.raise_for_status()
     numero = len(r.json().get("values", []))
     siti_noti, email_note = gia_noti()
@@ -227,8 +243,8 @@ def main():
 
     stato(attivita="Scrive le righe nel foglio", sitoAttuale="", scartati=scarti)
     if nuove:
-        r = SESSIONE.post(f"https://sheets.googleapis.com/v4/spreadsheets/{cfg['foglio']}/values/{SCHEDA}!A1:append",
-                          params={"valueInputOption": "RAW", "insertDataOption": "INSERT_ROWS"}, json={"values": nuove})
+        r = con_riprova(lambda: SESSIONE.post(f"https://sheets.googleapis.com/v4/spreadsheets/{cfg['foglio']}/values/{SCHEDA}!A1:append",
+                          params={"valueInputOption": "RAW", "insertDataOption": "INSERT_ROWS"}, json={"values": nuove}))
         r.raise_for_status()
     stato(inCorso=False, attivita="Finito", fine=datetime.datetime.now().isoformat(timespec="seconds"),
           esito=f"{len(nuove)} righe scritte su quota {p.quota}", scartati=scarti)
