@@ -1,0 +1,62 @@
+# La giornata della Ricerca (Ufficio 1.2 Planimetrie 3D): Adrian assegna zone e quote dal foglio "_00_ZoneEQuote",
+# i ricercatori lavorano al massimo 6 alla volta (Google Sheet: 60 richieste al minuto), poi Adrian scrive gli esiti.
+# Parte da sola ogni mattina alle 6:00 ora italiana (5:00 UTC d'inverno), oppure a mano da GitHub.
+name: Ricerca 00 Giornata della Ricerca (Adrian)
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+concurrency: giornata-ricerca
+env:
+  CHIAVE_GOOGLE_SHEET: ${{ secrets.CHIAVE_GOOGLE_SHEET }}
+  PYTHONIOENCODING: utf-8
+  TZ: Europe/Rome
+jobs:
+  piano:
+    name: Adrian assegna zone e quote
+    runs-on: ubuntu-latest
+    outputs:
+      lavori: ${{ steps.piano.outputs.lavori }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install requests google-auth
+      - id: piano
+        run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_04_AdrianOrganizzaLaGiornata.py" --fase piano
+  lavoro:
+    name: ${{ matrix.dipendente }} su ${{ matrix.citta }}
+    needs: piano
+    if: needs.piano.outputs.lavori != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include: ${{ fromJSON(needs.piano.outputs.lavori) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install requests google-auth
+      - name: Google Maps
+        if: matrix.maps
+        env:
+          CHIAVE_GOOGLE_MAPS: ${{ secrets.CHIAVE_GOOGLE_MAPS }}
+        run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_01_MotoreDellaRicercaSuMaps.py" --dipendente "${{ matrix.dipendente }}" --citta "${{ matrix.citta }}" --provincia "${{ matrix.provincia }}" --quota "${{ matrix.quota }}"
+      - name: Brave
+        if: always() && matrix.brave
+        env:
+          CHIAVE_BRAVE_SEARCH: ${{ secrets.CHIAVE_BRAVE_SEARCH }}
+        run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_03_MotoreDellaRicercaSuBrave.py" --dipendente "${{ matrix.dipendente }}" --citta "${{ matrix.citta }}" --provincia "${{ matrix.provincia }}" --quota "${{ matrix.quota }}"
+  chiusura:
+    name: Adrian scrive gli esiti
+    needs: [piano, lavoro]
+    if: always() && needs.piano.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install requests google-auth
+      - run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_04_AdrianOrganizzaLaGiornata.py" --fase chiusura
