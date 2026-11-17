@@ -30,11 +30,54 @@ async function gettoneGoogle() {
   return gettone.valore;
 }
 
+// Le skill dei dipendenti: cartella dell'ufficio 1.2 nelle skill DepthX (sola lettura)
+const CARTELLA_SKILL = 'C:\\Users\\Administrator\\.claude\\skills\\_02_Business\\_01_ClaudeInDepthXLabs\\_02_LineeAziendali\\_01_Linea1_ProductionDepartement\\_02_Linea_1.2_TOURPLANIMETRIA3D\\_02_Ufficio_1.2_Planimetrie';
+
+async function leggiStato(foglio) {
+  const r = await richiesta(`https://sheets.googleapis.com/v4/spreadsheets/${foglio}/values/Stato!A2:B50`, { headers: { Authorization: 'Bearer ' + await gettoneGoogle() } });
+  if (r.codice !== 200) return { esiste: false, errore: 'Scheda Stato non leggibile (' + r.codice + ')' };
+  const righe = (JSON.parse(r.testo).values || []).filter(x => x[0]);
+  if (!righe.length) return { esiste: false };
+  const stato = { esiste: true };
+  for (const [chiave, valore = ''] of righe) {
+    try { stato[chiave] = /^[\[{]/.test(valore) ? JSON.parse(valore) : valore === 'True' ? true : valore === 'False' ? false : /^\d+$/.test(valore) ? Number(valore) : valore; }
+    catch { stato[chiave] = valore; }
+  }
+  return stato;
+}
+// Google Sheet gratuito: 60 letture al minuto per l'account di servizio, condivise con i dipendenti.
+// Il Centro Gestione ne usa al massimo circa 30: chi lavora ogni 30 secondi, la scheda aperta ogni 6 secondi.
+let cacheChiLavora = { quando: 0, dati: {} };
+const cacheStato = {};
+
 require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerConLogEControlloAcceso').avviaServer('Ufficio12Planimetrie', {
+  // GET /ChiStaLavorando?fogli=id1,id2,...  ->  { id: true/false } per accendere i puntini nella stanza
+  'GET /ChiStaLavorando': async ({ indirizzo }) => {
+    const fogli = (indirizzo.searchParams.get('fogli') || '').split(',').filter(f => /^[A-Za-z0-9_-]{20,}$/.test(f)).slice(0, 60);
+    if (Date.now() - cacheChiLavora.quando > 30000) {
+      const dati = {};
+      for (const f of fogli) { try { const s = await leggiStato(f); dati[f] = !!(s.esiste && s.inCorso); } catch { dati[f] = false; } }
+      cacheChiLavora = { quando: Date.now(), dati };
+    }
+    return cacheChiLavora.dati;
+  },
+  // GET /Skill?cartella=_01_Ricerca/_02_Anna_AgenzieDaMaps  ->  il testo delle skill del dipendente, file per file in ordine
+  'GET /Skill': async ({ indirizzo }) => {
+    const cartella = indirizzo.searchParams.get('cartella') || '';
+    if (!/^_\d{2}_[A-Za-z]+\/_\d{2}_[A-Za-z0-9]+_[A-Za-z0-9]+$/.test(cartella)) return { esiste: false };
+    const dove = path.join(CARTELLA_SKILL, ...cartella.split('/'));
+    if (!fs.existsSync(dove)) return { esiste: false };
+    const file = fs.readdirSync(dove).filter(n => n.endsWith('.md')).sort();
+    return { esiste: true, file: file.map(n => ({ nome: n, testo: fs.readFileSync(path.join(dove, n), 'utf8') })) };
+  },
   // GET /StatoDipendente?foglio=<id del foglio Google del dipendente>  ->  il contenuto della sua scheda "Stato"
   'GET /StatoDipendente': async ({ indirizzo }) => {
     const foglio = indirizzo.searchParams.get('foglio') || '';
     if (!/^[A-Za-z0-9_-]{20,}$/.test(foglio)) return { esiste: false, errore: 'Foglio non valido' };
+    if (cacheStato[foglio] && Date.now() - cacheStato[foglio].quando < 6000) return cacheStato[foglio].dati;
+    const dati = await leggiStato(foglio);
+    cacheStato[foglio] = { quando: Date.now(), dati };
+    return dati;
     const r = await richiesta(`https://sheets.googleapis.com/v4/spreadsheets/${foglio}/values/Stato!A2:B50`, { headers: { Authorization: 'Bearer ' + await gettoneGoogle() } });
     if (r.codice !== 200) return { esiste: false, errore: 'Scheda Stato non leggibile (' + r.codice + ')' };
     const righe = (JSON.parse(r.testo).values || []).filter(x => x[0]);

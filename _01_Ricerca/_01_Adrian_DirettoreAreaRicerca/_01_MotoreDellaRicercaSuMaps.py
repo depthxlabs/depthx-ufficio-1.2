@@ -66,26 +66,48 @@ def sessione_sheet():
 
 
 SESSIONE = sessione_sheet()
-STATO, FOGLIO, ULTIMA = {}, {"id": ""}, {"t": 0.0}
+STATO, FOGLIO, ULTIMA, TURNO = {}, {"id": ""}, {"t": 0.0}, {"t": 0.0}
+REGISTRO = []  # il registro di lavoro: le ultime 60 azioni, si vede nel pannello del dipendente
+
+# Google Sheet gratuito: 60 richieste al minuto per tutto l'account di servizio.
+# Ogni dipendente fa al massimo UNA richiesta ogni 6 secondi: anche 10 dipendenti insieme restano a 60 al minuto.
+PAUSA_SHEET = 6.0
+
+
+def aspetta_turno():
+    attesa = TURNO["t"] + PAUSA_SHEET - time.time()
+    if attesa > 0:
+        time.sleep(attesa)
+    TURNO["t"] = time.time()
+
+
+def scrivi_registro(testo):
+    REGISTRO.append(datetime.datetime.now().strftime("%H:%M:%S") + "  " + testo)
+    del REGISTRO[:-60]
 
 
 def con_riprova(fare, tentativi=6):
     """Google Sheet a volte risponde 429 (troppe richieste): si aspetta e si riprova, mai perdere le righe."""
     for n in range(tentativi):
+        aspetta_turno()
         r = fare()
         if r.status_code != 429:
             return r
-        time.sleep(10 * (n + 1))
+        scrivi_registro(f"Google Sheet chiede di rallentare: attendo {20 * (n + 1)} secondi")
+        time.sleep(20 * (n + 1))
     return r
 
 
 def stato(**valori):
     """Aggiorna la scheda "Stato" del foglio del ricercatore: il Centro Gestione la legge ogni 3 secondi."""
+    if valori.get("attivita") and valori["attivita"] != STATO.get("attivita"):
+        scrivi_registro(valori["attivita"])
     STATO.update(valori, aggiornato=datetime.datetime.now().isoformat(timespec="seconds"))
-    # al massimo un aggiornamento ogni 5 secondi; l'inizio e la fine si scrivono sempre
-    if time.time() - ULTIMA["t"] < 5 and "inCorso" not in valori:
+    STATO["registro"] = REGISTRO[::-1]
+    # lo stato si scrive solo quando tocca il turno (una richiesta ogni 6 secondi); l'inizio e la fine si scrivono sempre
+    if time.time() - TURNO["t"] < PAUSA_SHEET and "inCorso" not in valori:
         return
-    ULTIMA["t"] = time.time()
+    aspetta_turno()
     righe = [["Chiave", "Valore"]] + [[k, json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else str(v)] for k, v in STATO.items()]
     try:
         SESSIONE.put(f"https://sheets.googleapis.com/v4/spreadsheets/{FOGLIO['id']}/values/Stato!A1:B50",
@@ -204,8 +226,9 @@ def main():
     siti_noti, email_note = gia_noti()
     oggi = datetime.date.today().isoformat()
     nuove, scarti = [], {}
-    def scarta(motivo):
+    def scarta(motivo, nome=""):
         scarti[motivo] = scarti.get(motivo, 0) + 1
+        scrivi_registro(f"Scartato {nome}: {motivo}")
 
     stato(attivita=f"Cerca su Google Maps: {', '.join(cfg['parole'])}")
     trovati = cerca_su_maps(cfg["parole"], p.citta, chiave_maps())
@@ -216,19 +239,19 @@ def main():
         nome = pl.get("displayName", {}).get("text", "")
         sito = pl.get("websiteUri", "")
         if not sito:
-            scarta("senza sito"); continue
+            scarta("senza sito", nome); continue
         dominio = urllib.parse.urlparse(sito).netloc.replace("www.", "")
         if dominio in siti_noti:
-            scarta("già in un foglio della Ricerca"); continue
+            scarta("già in un foglio della Ricerca", nome); continue
         stato(attivita=f"Legge il sito di {nome}", sitoAttuale=sito, scartati=scarti)
         info = leggi_sito(sito)
         stato(sitiLetti=STATO.get("sitiLetti", 0) + 1)
         if not info["letto"]:
-            scarta("sito non raggiungibile"); continue
+            scarta("sito non raggiungibile", nome); continue
         if not info["email"]:
-            scarta("nessuna email pubblica"); continue
+            scarta("nessuna email pubblica", nome); continue
         if info["email"] in email_note:
-            scarta("già in un foglio della Ricerca"); continue
+            scarta("già in un foglio della Ricerca", nome); continue
         numero += 1
         nuove.append([f"{cfg['sigla']}-{numero:04d}", oggi, p.dipendente, cfg["tipo"], nome,
                       componente(pl, "locality") or p.citta, componente(pl, "administrative_area_level_2", True) or p.provincia,
@@ -237,6 +260,7 @@ def main():
                       "Google Places API (New) + sito", "da contattare",
                       "" if info["planimetria"] else "planimetria non verificata sul sito"])
         siti_noti.add(dominio); email_note.add(info["email"])
+        scrivi_registro(f"Trovato {nome}: {info['email']} (riga {nuove[-1][0]})")
         stato(scritte=len(nuove), rimanenti=p.quota - len(nuove),
               ultime=([{"id": nuove[-1][0], "nome": nome, "email": info["email"]}] + STATO["ultime"])[:5])
         time.sleep(PAUSA_SITO)
