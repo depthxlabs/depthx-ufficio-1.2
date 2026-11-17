@@ -40,7 +40,7 @@ ULTIMA_BRAVE = {"t": 0.0, "usate": 0}
 
 
 def chiave_brave():
-    k = (os.environ.get("CHIAVE_BRAVE_SEARCH") or open(CHIAVE_BRAVE, encoding="utf-8-sig").read()).strip()
+    k = (os.environ.get("CHIAVE_BRAVE_SEARCH") or open(CHIAVE_BRAVE, encoding="utf-8-sig").read()).strip().lstrip("Feff")
     if not k.startswith("BSA"):
         sys.exit("Chiave Brave non trovata.")
     return k

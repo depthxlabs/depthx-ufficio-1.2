@@ -21,4 +21,5 @@ jobs:
           CHIAVE_BRAVE_SEARCH: ${{ secrets.CHIAVE_BRAVE_SEARCH }}
           CHIAVE_GOOGLE_SHEET: ${{ secrets.CHIAVE_GOOGLE_SHEET }}
           PYTHONIOENCODING: utf-8
+          TZ: Europe/Rome
         run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_03_MotoreDellaRicercaSuBrave.py" --dipendente Max --citta "${{ inputs.citta }}" --provincia "${{ inputs.provincia }}" --quota "${{ inputs.quota }}"

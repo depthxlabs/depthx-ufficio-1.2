@@ -21,4 +21,5 @@ jobs:
           CHIAVE_GOOGLE_MAPS: ${{ secrets.CHIAVE_GOOGLE_MAPS }}
           CHIAVE_GOOGLE_SHEET: ${{ secrets.CHIAVE_GOOGLE_SHEET }}
           PYTHONIOENCODING: utf-8
+          TZ: Europe/Rome
         run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_01_MotoreDellaRicercaSuMaps.py" --dipendente Elen --citta "${{ inputs.citta }}" --provincia "${{ inputs.provincia }}" --quota "${{ inputs.quota }}"
