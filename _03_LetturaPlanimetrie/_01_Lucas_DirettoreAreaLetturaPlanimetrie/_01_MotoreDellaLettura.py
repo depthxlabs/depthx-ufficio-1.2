@@ -260,13 +260,19 @@ def git(radice, *a):
 
 
 def carica(radice, n):
-    git(radice, "add", "-A", "--sparse", "_03_BollePerOgniPlanimetria")
+    r = git(radice, "add", "-A", "_03_BollePerOgniPlanimetria")
+    if r.returncode:
+        print("aggiunta non riuscita:", r.stderr.strip()[:300]); return False
     if not git(radice, "status", "--porcelain").stdout.strip():
         return True
-    git(radice, "-c", "user.name=DepthX Lettura", "-c", "user.email=outbound@depthxlabs.com", "commit", "-q", "-m", f"Lettura planimetrie: {n} bolle")
+    r = git(radice, "-c", "user.name=DepthX Lettura", "-c", "user.email=outbound@depthxlabs.com", "commit", "-q", "-m", f"Lettura planimetrie: {n} bolle")
+    if r.returncode:
+        print("commit non riuscito:", (r.stderr or r.stdout).strip()[:300]); return False
     for k in range(8):
-        if git(radice, "push", "-q", "origin", "HEAD:main").returncode == 0:
+        r = git(radice, "push", "-q", "origin", "HEAD:main")
+        if r.returncode == 0:
             return True
+        print("caricamento rifiutato, riprovo:", r.stderr.strip()[:200])
         git(radice, "pull", "-q", "--rebase", "origin", "main"); time.sleep(3 + 3 * k)
     return False
 
