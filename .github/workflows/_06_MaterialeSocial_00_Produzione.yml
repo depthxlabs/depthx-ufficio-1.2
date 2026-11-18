@@ -140,6 +140,7 @@ jobs:
           python3 /tmp/avanza.py fase="Caricamento e libreria necessaria"
           $C pacco.tgz coda_tutta.txt filtro_libreria.txt ~/.config/rclone/rclone.conf "$SSH_HOST:/root/"
           $S "set -e; mkdir -p /root/lavoro; tar -xzf /root/pacco.tgz -C /root/lavoro
+            export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq unzip curl > /dev/null
             curl -fsSL https://rclone.org/install.sh | bash > /dev/null
             rclone --config /root/rclone.conf copy gdrive:_02_Librerie3D /root/lavoro/_00_Motore/assets/libreria --drive-root-folder-id $LIBRERIA_DRIVE --filter-from /root/filtro_libreria.txt --transfers 16
             rm -f /root/rclone.conf"
