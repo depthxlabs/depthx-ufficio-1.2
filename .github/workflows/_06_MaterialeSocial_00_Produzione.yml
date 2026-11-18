@@ -1,8 +1,11 @@
-# Ufficio Materiale social (Ufficio 1.2 Planimetrie 3D, responsabile Freya): produce soltanto i video e li lascia su GitHub, dove il disco li legge in _03_DatabaseMediaProdotti.
-# Si accende e si spegne dal pannello di Hector. Due schede Vast in Europa nello stesso momento: Nadia FloorView, Isla Unfold.
-# Ogni scheda: noleggio con la regola dei 5 minuti, solo la libreria che il motore usa, provino, render con anti tremolio a 0,00%,
-# scaricamento, distruzione sempre, formato post Instagram dal verticale, video su GitHub per formato, letti dal disco.
-# L'avanzamento si pubblica ogni 30 secondi in un controllo GitHub "Materiale social <produttore>", letto dal pannello di Hector.
+# Ufficio Materiale social (Ufficio 1.2 Planimetrie 3D, responsabile Freya): produce soltanto i video, versione parallela.
+# Si accende e si spegne dal pannello di Hector.
+# 1. Preparazione: un pacco con motore, case e solo la libreria usata; la coda di tutti i video.
+# 2. Provini su GitHub, in parallelo, con il provino veloce (solo controlli di arredo e camera, senza scheda grafica).
+# 3. Parti: i video promossi divisi in parti uguali per fotogrammi, una scheda per parte.
+# 4. Render: ogni parte noleggia 2 schede insieme, tiene la prima pronta e distrugge l'altra; immagine pronta, nessuna installazione.
+#    Ogni scheda ha l'etichetta ms|giro|parte: il Centro Gestione la legge di secondo in secondo.
+# 5. Chiusura: video su GitHub per formato (il disco li legge in _03_DatabaseMediaProdotti), stato di ogni video, spesa, 0 schede accese.
 name: Materiale social 00 Produzione (Freya)
 on:
   workflow_dispatch:
@@ -10,204 +13,297 @@ on:
       versioni:
         description: "Versioni da produrre, separate da spazi"
         default: "1 2 3"
+      schede:
+        description: "Schede in parallelo"
+        default: "14"
 concurrency: materiale-social
 permissions:
   contents: read
   checks: write
+  packages: read
+env:
+  GH_TOKEN: ${{ github.token }}
+  VERSIONE: ${{ inputs.versioni || '1 2 3' }}
+  SCHEDE: ${{ inputs.schede || '14' }}
+  IMMAGINE: ghcr.io/depthxlabs/depthx-scheda-render:latest
+  FLAG_CHROME: "--use-angle=gl-egl --use-gl=angle --enable-gpu"
+  PAESI: "AT BE BG CH CZ DE DK EE ES FI FR GB GR HR HU IE IS IT LT LU LV NL NO PL PT RO SE SI SK US CA"
 jobs:
-  produzione:
-    name: ${{ matrix.chi }} ${{ matrix.nome }} versioni ${{ inputs.versioni }}
+  prepara:
+    name: Preparazione del pacco e della coda
     runs-on: ubuntu-latest
-    timeout-minutes: 150
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { chi: Nadia, prodotto: _01_FloorView, nome: FloorView, sigla: fv }
-          - { chi: Isla, prodotto: _02_Unfold, nome: Unfold, sigla: uf }
-    env:
-      VERSIONE: ${{ inputs.versioni }}
-      CHI: ${{ matrix.chi }}
-      PRODOTTO: ${{ matrix.prodotto }}
-      NOME: ${{ matrix.nome }}
-      SIGLA: ${{ matrix.sigla }}
-      FLAG_CHROME: "--use-angle=gl-egl --use-gl=angle --enable-gpu"
-      GH_TOKEN: ${{ github.token }}
-      EUROPA: "AT BE BG CH CZ DE DK EE ES FI FR GB GR HR HU IE IS IT LT LU LV NL NO PL PT RO SE SI SK"
+    outputs:
+      gruppi: ${{ steps.coda.outputs.gruppi }}
+      credito: ${{ steps.coda.outputs.credito }}
     steps:
       - uses: actions/checkout@v4
       - name: Libreria 3D dal repository privato depthx-libreria-3d-1.2
         uses: actions/checkout@v4
         with: { repository: depthxlabs/depthx-libreria-3d-1.2, ssh-key: "${{ secrets.CHIAVE_LIBRERIA_SOCIALE }}", path: libreria }
-
-      - name: Strumenti, chiavi e avanzamento
+      - id: coda
+        name: Pacco, coda e controlli dei produttori
         env:
           VAST_API_KEY: ${{ secrets.VAST_API_KEY }}
-          SSH_PRIVATA_VAST: ${{ secrets.SSH_PRIVATA_VAST }}
         run: |
-          pip install -q vastai
-          sudo apt-get install -y -qq ffmpeg > /dev/null
-          mkdir -p ~/.ssh
-          printf '%s\n' "$SSH_PRIVATA_VAST" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
-          vastai set api-key "$VAST_API_KEY" > /dev/null
-          echo "CREDITO_PRIMA=$(vastai show user --raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["credit"])')" >> $GITHUB_ENV
-          # avanzamento: /tmp/av.json, pubblicato nel controllo GitHub del produttore
-          cat > /tmp/avanza.py <<'PY'
-          import json, os, subprocess, sys, time
-          F = "/tmp/av.json"
-          a = json.load(open(F)) if os.path.exists(F) else {"chi": os.environ["CHI"], "prodotto": os.environ["NOME"], "versione": os.environ["VERSIONE"], "fase": "", "scheda": {}, "video": {}, "render": {}, "salvati": 0, "inizio": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-          for arg in sys.argv[1:]:
-              k, v = arg.split("=", 1)
-              if k == "render" and os.path.exists(v):
-                  try: a["render"] = json.load(open(v))
-                  except Exception: pass
-              elif k.startswith("video."): a["video"][k[6:]] = v
-              elif k.startswith("scheda."): a["scheda"][k[7:]] = v
-              else:
-                  if k == "fase" and v != a.get("fase"): a["fase_inizio"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                  if k == "fase" and v.startswith("Provino") and "provini_inizio" not in a: a["provini_inizio"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                  a[k] = v
-          a["aggiornato"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-          json.dump(a, open(F, "w"))
-          repo, cid = os.environ["GITHUB_REPOSITORY"], os.environ.get("CHECK_ID")
-          corpo = json.dumps({"output": {"title": a["fase"] or "avvio", "summary": json.dumps(a, ensure_ascii=False)}})
-          if cid: subprocess.run(["gh", "api", "-X", "PATCH", f"repos/{repo}/check-runs/{cid}", "--input", "-"], input=corpo.encode(), capture_output=True)
-          PY
-          CID=$(gh api -X POST "repos/$GITHUB_REPOSITORY/check-runs" -f name="Materiale social $CHI" -f head_sha="$GITHUB_SHA" -f status=in_progress -f external_id="$GITHUB_RUN_ID" --jq .id)
-          echo "CHECK_ID=$CID" >> $GITHUB_ENV
-          CHECK_ID=$CID python3 /tmp/avanza.py fase="Preparazione"
-
-      - name: Pacco, coda e libreria necessaria
-        run: |
-          mkdir -p lavoro
-          cp -r _06_MaterialeSocial/_01_MotoreProduzione lavoro/_00_Motore
-          cp -r "_06_MaterialeSocial/_02_Case/$PRODOTTO" lavoro/
-          V=""
-          for ver in $VERSIONE; do
-            for d in lavoro/$PRODOTTO/*/; do
-              c=$(basename "$d")
-              for f in orizzontale verticale post; do
-                o=${f:0:1}; id="${SIGLA}${c:1:2}${ver}${o}"
-                echo "$id|$PRODOTTO/$c/codice/index.html?o=$o&ver=$ver|$f|$PRODOTTO/$c/DepthX_${NOME}${ver}${c}_${f}_60fps.mp4"
-              done
-            done
-          done > coda_tutta.txt
+          pip install -q vastai && vastai set api-key "$VAST_API_KEY" > /dev/null
+          echo "credito=$(vastai show user --raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["credit"])')" >> $GITHUB_OUTPUT
+          mkdir -p lavoro && cp -r _06_MaterialeSocial/_01_MotoreProduzione lavoro/_00_Motore
+          cp -r _06_MaterialeSocial/_02_Case/_01_FloorView _06_MaterialeSocial/_02_Case/_02_Unfold lavoro/
           python3 - <<'PY'
-          import re
+          import re, json, os
           t = open("lavoro/_00_Motore/motore/libreria.js", encoding="utf-8").read()
           mod = re.search(r"MODELLI = \{(.*?)\n\};", t, re.S).group(1); mat = re.search(r"MATERIALI = \{(.*?)\n\};", t, re.S).group(1)
           righe = sorted({f"+ modelli/{m}/**" for m in re.findall(r"\['([A-Za-z0-9_]+)', -?\d+\]", mod)})
           righe += sorted({f"+ materiali/{m}/{m}_1K-JPG_*.jpg" for m in re.findall(r"\['([A-Za-z0-9_]+)', [\d.]+\]", mat)})
           open("filtro_libreria.txt", "w").write("\n".join(righe + ["- **"]) + "\n")
-          print(len(righe), "voci della libreria")
+          PRODOTTI = [("Nadia", "_01_FloorView", "FloorView", "fv"), ("Isla", "_02_Unfold", "Unfold", "uf")]
+          coda, orizz = [], []
+          for ver in os.environ["VERSIONE"].split():
+              for chi, prod, nome, sigla in PRODOTTI:
+                  for c in sorted(os.listdir(f"lavoro/{prod}")):
+                      for f in ("orizzontale", "verticale", "post"):
+                          i = f"{sigla}{c[1:3]}{ver}{f[0]}"
+                          coda.append(f"{i}|{prod}/{c}/codice/index.html?o={f[0]}&ver={ver}|{f}|{prod}/{c}/DepthX_{nome}{ver}{c}_{f}_60fps.mp4|{chi}")
+                          if f == "orizzontale": orizz.append(i)
+          open("coda_tutta.txt", "w").write("\n".join(coda) + "\n")
+          gruppi = [orizz[k::12] for k in range(12)]
+          for k, g in enumerate(gruppi): open(f"gruppo_{k+1:02d}.txt", "w").write("\n".join(g) + "\n")
+          open(os.environ["GITHUB_OUTPUT"], "a").write("gruppi=" + json.dumps([k + 1 for k, g in enumerate(gruppi) if g]) + "\n")
+          for chi, prod, nome, sigla in PRODOTTI:
+              av = {"chi": chi, "prodotto": nome, "versione": os.environ["VERSIONE"], "fase": "Provini su GitHub", "schede_previste": int(os.environ["SCHEDE"]),
+                    "video": {r.split("|")[0]: "in_coda" for r in coda if r.endswith("|" + chi)}, "salvati": 0, "parallelo": True}
+              json.dump(av, open(f"av_{chi}.json", "w"))
+          print(len(coda), "video in coda,", len(orizz), "provini")
           PY
-          # solo i modelli e i materiali usati dal motore, presi dal repository della libreria
           mkdir -p lavoro/_00_Motore/assets/libreria
           rsync -am --include="*/" --filter="merge filtro_libreria.txt" libreria/ lavoro/_00_Motore/assets/libreria/
           echo "libreria nel pacco: $(du -sh lavoro/_00_Motore/assets/libreria | cut -f1)"
-          tar -C lavoro -czf pacco.tgz _00_Motore "$PRODOTTO"
-          python3 /tmp/avanza.py fase="Noleggio della scheda" $(for l in $(cut -d'|' -f1 coda_tutta.txt); do printf 'video.%s=in_coda ' "$l"; done)
-
-      - name: Noleggio in Europa, regola dei 5 minuti
-        run: |
-          for prova in 1 2 3; do
-            vastai search offers 'gpu_name=RTX_4090 num_gpus=1 reliability>0.98 cpu_cores_effective>=16 inet_down>300 disk_space>=60 direct_port_count>=1 rentable=true' -o 'dph+' --raw > offerte.json
-            read ID PAESE GPU PREZZO <<< $(python3 -c "
-          import json,os
-          eu=os.environ['EUROPA'].split(); o=[x for x in json.load(open('offerte.json')) if str(x.get('geolocation','')).split(',')[-1].strip() in eu]
-          x=o[$prova-1] if len(o)>=$prova else None
-          print(x['id'], str(x.get('geolocation','')).replace(' ','_'), x.get('gpu_name','').replace(' ','_'), round(x.get('dph_total',0),3)) if x else print('')")
-            [ -z "$ID" ] && continue
-            I=$(vastai create instance "$ID" --image nvidia/cuda:12.4.1-runtime-ubuntu22.04 --env '-e NVIDIA_DRIVER_CAPABILITIES=all' --disk 60 --ssh --direct --raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["new_contract"])')
-            echo "ISTANZA=$I" >> $GITHUB_ENV
-            python3 /tmp/avanza.py fase="Noleggio della scheda, tentativo $prova" scheda.id="$I" scheda.paese="$PAESE" scheda.gpu="$GPU" scheda.prezzo_ora="$PREZZO" scheda.noleggio="$(date -u +%FT%TZ)" scheda.stato="avvio"
-            for t in $(seq 1 30); do
-              sleep 10
-              U=$(vastai ssh-url "$I" 2>/dev/null || true)
-              [ -z "$U" ] && continue
-              A=${U#ssh://}; H=${A%:*}; P=${A##*:}
-              if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=8 -p "$P" "$H" true 2>/dev/null; then
-                echo "SSH_HOST=$H" >> $GITHUB_ENV; echo "SSH_PORTA=$P" >> $GITHUB_ENV
-                python3 /tmp/avanza.py fase="Scheda pronta" scheda.stato="accesa" scheda.pronta_dopo_s="$((t*10))"
-                exit 0
-              fi
-            done
-            vastai destroy instance "$I" -y
-            python3 /tmp/avanza.py scheda.stato="distrutta: non pronta in 5 minuti"
+          tar -C lavoro -czf pacco.tgz _00_Motore _01_FloorView _02_Unfold
+          for chi in Nadia Isla; do
+            gh api -X POST "repos/$GITHUB_REPOSITORY/check-runs" -f name="Materiale social $chi" -f head_sha="$GITHUB_SHA" -f status=in_progress -f external_id="$GITHUB_RUN_ID" \
+              -f "output[title]=Provini su GitHub" -f "output[summary]=$(cat av_$chi.json)" --jq .id > cid_$chi.txt
           done
-          python3 /tmp/avanza.py fase="NOTGO: nessuna scheda pronta in 3 tentativi"; exit 1
+      - uses: actions/upload-artifact@v4
+        with: { name: pacco, path: "pacco.tgz\ncoda_tutta.txt\ngruppo_*.txt\nav_*.json\ncid_*.txt", retention-days: 1 }
 
-      - name: Lavoro sulla scheda
+  provini:
+    name: Provini ${{ matrix.gruppo }}
+    needs: prepara
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        gruppo: ${{ fromJSON(needs.prepara.outputs.gruppi) }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: pacco }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: Provino veloce di ogni casa e versione
+        run: |
+          G=$(printf '%02d' ${{ matrix.gruppo }})
+          mkdir -p lavoro && tar -xzf pacco.tgz -C lavoro
+          (cd lavoro/_00_Motore/strumenti && npm i --silent --no-audit --no-fund puppeteer-core@25.17.0 > /dev/null)
+          : > esito_$G.txt
+          for id in $(cat gruppo_$G.txt); do
+            (
+              pagina=$(grep "^$id|" coda_tutta.txt | cut -d'|' -f2)
+              r=$(cd lavoro/_00_Motore/strumenti && CHROME=/usr/bin/google-chrome FLAG_CHROME="--use-angle=swiftshader --enable-unsafe-swiftshader" timeout 900 node provino_controlli.js "$GITHUB_WORKSPACE/lavoro" "$pagina" orizzontale 2>&1 | grep -E "problemi|ERRORE" | head -1)
+              echo "$id|$r" >> esito_$G.txt; echo "$id: $r"
+            ) &
+          done
+          wait
+      - uses: actions/upload-artifact@v4
+        with: { name: "provini-${{ matrix.gruppo }}", path: "esito_*.txt", retention-days: 1 }
+
+  parti:
+    name: Divisione in parti
+    needs: [prepara, provini]
+    if: always() && needs.prepara.result == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      parti: ${{ steps.dividi.outputs.parti }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: arrivi }
+      - id: dividi
+        name: Video promossi divisi per fotogrammi
+        run: |
+          cp arrivi/pacco/* .
+          cat arrivi/provini-*/esito_*.txt > esiti.txt 2>/dev/null || : > esiti.txt
+          python3 - <<'PY'
+          import json, os, subprocess
+          esiti = {l.split("|", 1)[0]: l.split("|", 1)[1].strip() for l in open("esiti.txt", encoding="utf-8") if "|" in l}
+          coda = [l.strip() for l in open("coda_tutta.txt", encoding="utf-8") if l.strip()]
+          ok, av = [], {c: json.load(open(f"av_{c}.json")) for c in ("Nadia", "Isla")}
+          for r in coda:
+              i, chi = r.split("|")[0], r.split("|")[4]
+              e = esiti.get(i[:-1] + "o", "provino non fatto")
+              if "arredo 0 problemi | camera 0 problemi" in e: ok.append(r); av[chi]["video"][i] = "provino_ok"
+              else: av[chi]["video"][i] = "NOTGO_provino: " + e[:120]
+          N = max(1, min(int(os.environ["SCHEDE"]), len(ok)))
+          stima = lambda r: 2750 if r.startswith("uf") else 1500
+          parti = [[] for _ in range(N)]
+          for r in sorted(ok, key=stima, reverse=True): min(parti, key=lambda p: sum(map(stima, p))).append(r)
+          for k, p in enumerate(parti): open(f"parte_{k+1:02d}.txt", "w").write("\n".join("|".join(x.split("|")[:4]) for x in p) + "\n")
+          open(os.environ["GITHUB_OUTPUT"], "a").write("parti=" + json.dumps([k + 1 for k in range(N) if parti[k]]) + "\n")
+          for c in av:
+              av[c]["fase"] = f"Render su {N} schede"; json.dump(av[c], open(f"av_{c}.json", "w"))
+              cid = open(f"cid_{c}.txt").read().strip()
+              subprocess.run(["gh", "api", "-X", "PATCH", f"repos/{os.environ['GITHUB_REPOSITORY']}/check-runs/{cid}", "--input", "-"],
+                             input=json.dumps({"output": {"title": av[c]["fase"], "summary": json.dumps(av[c], ensure_ascii=False)}}).encode(), capture_output=True)
+          print(len(ok), "video promossi su", len(coda), "in", N, "parti")
+          PY
+      - uses: actions/upload-artifact@v4
+        with: { name: parti, path: "parte_*.txt\nav_*.json\ncid_*.txt", retention-days: 1 }
+
+  render:
+    name: Scheda ${{ matrix.parte }}
+    needs: [prepara, parti]
+    if: always() && needs.parti.result == 'success' && needs.parti.outputs.parti != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        parte: ${{ fromJSON(needs.parti.outputs.parti) }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: pacco }
+      - uses: actions/download-artifact@v4
+        with: { name: parti }
+      - name: Chiavi
+        env:
+          VAST_API_KEY: ${{ secrets.VAST_API_KEY }}
+          SSH_PRIVATA_VAST: ${{ secrets.SSH_PRIVATA_VAST }}
+        run: |
+          pip install -q vastai && vastai set api-key "$VAST_API_KEY" > /dev/null
+          mkdir -p ~/.ssh && printf '%s\n' "$SSH_PRIVATA_VAST" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          echo "PARTE=$(printf '%02d' ${{ matrix.parte }})" >> $GITHUB_ENV
+      - name: Noleggio di 2 schede, resta la prima pronta
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, time
+          parte, N = int(os.environ["PARTE"]), len(json.loads('${{ needs.parti.outputs.parti }}'))
+          paesi = os.environ["PAESI"].split()
+          def offerte():
+              o = []
+              for g in ("RTX_4090", "RTX_5090"):
+                  r = subprocess.run(["vastai", "search", "offers", f"gpu_name={g} num_gpus=1 reliability>0.98 cpu_cores_effective>=16 inet_down>300 disk_space>=30 direct_port_count>=1 rentable=true dph_total<1.2", "-o", "dph+", "--raw"], capture_output=True, text=True)
+                  try: o += [x for x in json.loads(r.stdout) if str(x.get("geolocation", "")).split(",")[-1].strip() in paesi]
+                  except Exception: pass
+              return sorted(o, key=lambda x: x["dph_total"])
+          def crea(x):
+              r = subprocess.run(["vastai", "create", "instance", str(x["id"]), "--image", os.environ["IMMAGINE"], "--login", f"-u {os.environ['GITHUB_ACTOR']} -p {os.environ['GH_TOKEN']} ghcr.io",
+                                  "--env", "-e NVIDIA_DRIVER_CAPABILITIES=all", "--disk", "30", "--ssh", "--direct", "--label", f"ms|{os.environ['GITHUB_RUN_ID']}|{os.environ['PARTE']}", "--raw"], capture_output=True, text=True)
+              try: return json.loads(r.stdout).get("new_contract")
+              except Exception: return None
+          def pronta(i):
+              r = subprocess.run(["vastai", "ssh-url", str(i)], capture_output=True, text=True); u = r.stdout.strip()
+              if not u.startswith("ssh://"): return None
+              h, p = u[6:].rsplit(":", 1)
+              ok = subprocess.run(["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=6", "-p", p, h, "test -x /usr/bin/google-chrome"], capture_output=True).returncode == 0
+              return (h, p) if ok else None
+          for giro in range(3):
+              o = offerte(); base = (giro * N + parte - 1) * 2
+              scelte = (o[base:base + 2] or o[:2]) if o else []
+              istanze = {}
+              for x in scelte:
+                  i = crea(x)
+                  if i: istanze[i] = x
+              print("giro", giro + 1, "schede noleggiate:", list(istanze))
+              t0, vinta = time.time(), None
+              while istanze and time.time() - t0 < 300 and not vinta:
+                  time.sleep(5)
+                  for i in list(istanze):
+                      hp = pronta(i)
+                      if hp: vinta = (i, hp); break
+              for i in istanze:
+                  if not vinta or i != vinta[0]: subprocess.run(["vastai", "destroy", "instance", str(i), "-y"], capture_output=True)
+              if vinta:
+                  i, (h, p) = vinta; x = istanze[i]
+                  with open(os.environ["GITHUB_ENV"], "a") as f:
+                      f.write(f"ISTANZA={i}\nSSH_HOST={h}\nSSH_PORTA={p}\nPAESE={str(x.get('geolocation','')).replace(' ','_')}\nGPU={x.get('gpu_name','').replace(' ','_')}\nPREZZO={round(x['dph_total'],3)}\nPRONTA_DOPO={int(time.time()-t0)}\n")
+                  print("scheda", i, x.get("gpu_name"), x.get("geolocation"), x["dph_total"], "$/h pronta dopo", int(time.time() - t0), "s"); raise SystemExit(0)
+          raise SystemExit("nessuna scheda pronta in 3 giri")
+          PY
+      - name: Render sulla scheda
         run: |
           S="ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -p $SSH_PORTA $SSH_HOST"
           C="scp -o StrictHostKeyChecking=no -P $SSH_PORTA"
-          python3 /tmp/avanza.py fase="Caricamento e libreria necessaria"
-          $C pacco.tgz coda_tutta.txt "$SSH_HOST:/root/"
-          $S "set -e; mkdir -p /root/lavoro; tar -xzf /root/pacco.tgz -C /root/lavoro
-            export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq unzip curl > /dev/null"
-          python3 /tmp/avanza.py fase="Preparazione della scheda"
-          $S "cd /root/lavoro/_00_Motore/strumenti && bash vast_prepara.sh"
-          : > coda_ok.txt
-          while IFS='|' read -r id pagina modo video <&3; do
-            if [ "$modo" != orizzontale ]; then
-              grep -q "^${id%?}o|" coda_ok.txt && { echo "$id|$pagina|$modo|$video" >> coda_ok.txt; python3 /tmp/avanza.py video.$id=provino_ok; } || python3 /tmp/avanza.py video.$id=NOTGO_provino
-              continue
-            fi
-            python3 /tmp/avanza.py fase="Provino $id" video.$id=provino
-            r=$($S "cd /root/lavoro/_00_Motore/strumenti; FLAG_CHROME='$FLAG_CHROME' timeout 300 node provino.js /root/lavoro '$pagina' /root/provini/$id 2,6,10 orizzontale 2>&1 | grep -E 'arredo|ERRORE' | tail -1")
-            echo "provino $id: $r"
-            if echo "$r" | grep -q 'arredo 0 problemi | camera 0 problemi'; then echo "$id|$pagina|$modo|$video" >> coda_ok.txt; python3 /tmp/avanza.py video.$id=provino_ok
-            else python3 /tmp/avanza.py "video.$id=NOTGO_provino: $r"; fi
-          done 3< coda_tutta.txt
-          if [ ! -s coda_ok.txt ]; then python3 /tmp/avanza.py fase="NOTGO: nessuna casa ha passato il provino"; exit 0; fi
-          $C coda_ok.txt "$SSH_HOST:/root/lavoro/_00_Motore/strumenti/coda_vast.txt"
-          $S "cd /root/lavoro/_00_Motore/strumenti; FLAG_CHROME='$FLAG_CHROME' nohup node vast_rendi.js /root/lavoro coda_vast.txt 12 400 > rendi.out 2>&1 &"
-          python3 /tmp/avanza.py fase="Render"
-          for t in $(seq 1 180); do
-            sleep 30
-            $C "$SSH_HOST:/root/lavoro/_00_Motore/strumenti/stato.json" /tmp/render.json 2>/dev/null || true
-            for id in $(cut -d'|' -f1 coda_ok.txt); do
-              $S "grep -q '$id: NOTGO' /root/lavoro/_00_Motore/strumenti/vast_rendi.log 2>/dev/null" && python3 /tmp/avanza.py video.$id=NOTGO_tremolio
-            done
-            python3 /tmp/avanza.py render=/tmp/render.json fase="Render" scheda.minuti_accesa="$(( ( $(date +%s) - $(date -d "$(python3 -c "import json; print(json.load(open('/tmp/av.json'))['scheda']['noleggio'])")" +%s) ) / 60 ))"
-            $S "pgrep -f vast_rendi.js > /dev/null" || break
-          done
-          python3 /tmp/avanza.py fase="Scaricamento dei video"
+          $C pacco.tgz parte_$PARTE.txt "$SSH_HOST:/root/"
+          $S "set -e; mkdir -p /root/lavoro && tar -xzf /root/pacco.tgz -C /root/lavoro
+            ln -sfn /opt/depthx/node_modules /root/lavoro/_00_Motore/strumenti/node_modules
+            cp /root/parte_$PARTE.txt /root/lavoro/_00_Motore/strumenti/coda_vast.txt
+            nvidia-smi --query-gpu=name,driver_version --format=csv,noheader
+            cd /root/lavoro/_00_Motore/strumenti && FLAG_CHROME='$FLAG_CHROME' nohup node vast_rendi.js /root/lavoro coda_vast.txt 12 400 > rendi.out 2>&1 &"
+          T0=$(date +%s)
+          while $S "pgrep -f vast_rendi.js > /dev/null"; do sleep 10; [ $(( $(date +%s) - T0 )) -gt 2400 ] && break; done
+          echo "RENDER_S=$(( $(date +%s) - T0 ))" >> $GITHUB_ENV
           mkdir -p uscita
-          $C "$SSH_HOST:/root/lavoro/$PRODOTTO/*/*.mp4" uscita/ || echo "nessun video scaricato"
-          $C "$SSH_HOST:/root/lavoro/_00_Motore/strumenti/vast_rendi.log" uscita/ || true
-          for v in uscita/*.mp4; do [ -e "$v" ] || continue; id=$(grep -F "$(basename "$v")" coda_ok.txt | cut -d'|' -f1); [ -n "$id" ] && python3 /tmp/avanza.py video.$id=prodotto; done
+          $C "$SSH_HOST:/root/lavoro/_0*/*/*.mp4" uscita/ 2>/dev/null || echo "nessun video"
+          $C "$SSH_HOST:/root/lavoro/_00_Motore/strumenti/vast_rendi.log" uscita/vast_rendi_$PARTE.log || true
           ls -la uscita
-
       - name: Distruzione della scheda, sempre
         if: always() && env.ISTANZA != ''
-        run: |
-          vastai destroy instance "$ISTANZA" -y || true
-          sleep 15
-          N=$(vastai show instances --raw | python3 -c "import json,sys,os; print(len([x for x in json.load(sys.stdin) if str(x['id'])==os.environ['ISTANZA']]))")
-          python3 /tmp/avanza.py scheda.stato="distrutta" scheda.macchine_accese="$N"
-
-      - name: Video nelle cartelle dei formati
+        run: vastai destroy instance "$ISTANZA" -y || true
+      - name: Video per formato ed esito della parte
         if: always()
         run: |
-          python3 /tmp/avanza.py fase="Salvataggio su GitHub"
-          mkdir -p uscita_formati/_01_VideoVerticali uscita_formati/_02_VideoOrizzontali uscita_formati/_03_VideoFormatoPostInstagram
-          for v in uscita/*_verticale_60fps.mp4; do [ -e "$v" ] && cp "$v" uscita_formati/_01_VideoVerticali/; done
-          for v in uscita/*_orizzontale_60fps.mp4; do [ -e "$v" ] && cp "$v" uscita_formati/_02_VideoOrizzontali/; done
-          for v in uscita/*_post_60fps.mp4; do [ -e "$v" ] && cp "$v" uscita_formati/_03_VideoFormatoPostInstagram/; done
-          N=$(find uscita_formati -name '*.mp4' | wc -l)
-          CREDITO_DOPO=$(vastai show user --raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["credit"])')
-          SPESA=$(python3 -c "print(round($CREDITO_PRIMA-$CREDITO_DOPO,3))")
-          python3 /tmp/avanza.py fase="Finito" salvati="$N" totale="$(wc -l < coda_tutta.txt)" spesa="$SPESA"
-          gh api -X PATCH "repos/$GITHUB_REPOSITORY/check-runs/$CHECK_ID" -f status=completed -f conclusion=$([ "$N" -gt 0 ] && echo success || echo failure) > /dev/null || true
-          echo "## $NOME versione $VERSIONE" >> $GITHUB_STEP_SUMMARY
-          echo "Video salvati su GitHub per il disco: $N su $(wc -l < coda_tutta.txt). Spesa letta dal credito Vast: $SPESA \$" >> $GITHUB_STEP_SUMMARY
-
-      - name: Video su GitHub, letti dal disco in _03_DatabaseMediaProdotti
+          mkdir -p f/_01_VideoVerticali f/_02_VideoOrizzontali f/_03_VideoFormatoPostInstagram
+          for v in uscita/*_verticale_60fps.mp4; do [ -e "$v" ] && cp "$v" f/_01_VideoVerticali/; done
+          for v in uscita/*_orizzontale_60fps.mp4; do [ -e "$v" ] && cp "$v" f/_02_VideoOrizzontali/; done
+          for v in uscita/*_post_60fps.mp4; do [ -e "$v" ] && cp "$v" f/_03_VideoFormatoPostInstagram/; done
+          python3 - <<'PY'
+          import json, os, glob
+          P = os.environ["PARTE"]; righe = [l.strip().split("|") for l in open(f"parte_{P}.txt") if "|" in l]
+          log = open(glob.glob("uscita/vast_rendi_*.log")[0], errors="replace").read() if glob.glob("uscita/vast_rendi_*.log") else ""
+          fatti = {os.path.basename(v) for v in glob.glob("uscita/*.mp4")}
+          video = {r[0]: ("prodotto" if os.path.basename(r[3]) in fatti else "NOTGO_tremolio" if f"{r[0]}: NOTGO" in log else "non prodotto") for r in righe}
+          json.dump({"parte": P, "istanza": os.environ.get("ISTANZA", ""), "paese": os.environ.get("PAESE", ""), "gpu": os.environ.get("GPU", ""), "prezzo_ora": os.environ.get("PREZZO", ""),
+                     "pronta_dopo_s": os.environ.get("PRONTA_DOPO", ""), "render_s": os.environ.get("RENDER_S", ""), "video": video}, open(f"f/esito_{P}.json", "w"))
+          PY
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: video-${{ matrix.chi }}-${{ github.run_id }}
-          path: uscita_formati/
-          retention-days: 7
-          if-no-files-found: ignore
+        with: { name: "video-parte-${{ matrix.parte }}-${{ github.run_id }}", path: f/, retention-days: 7 }
+
+  chiusura:
+    name: Chiusura del giro
+    needs: [prepara, parti, render]
+    if: always() && needs.prepara.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: arrivi }
+      - name: Stato finale, spesa e 0 schede accese
+        env:
+          VAST_API_KEY: ${{ secrets.VAST_API_KEY }}
+        run: |
+          pip install -q vastai && vastai set api-key "$VAST_API_KEY" > /dev/null
+          for i in $(vastai show instances --raw | python3 -c "import json,sys,os; print(' '.join(str(x['id']) for x in json.load(sys.stdin) if str(x.get('label') or '').startswith('ms|'+os.environ['GITHUB_RUN_ID']+'|')))"); do vastai destroy instance $i -y; done
+          sleep 10
+          export CREDITO_DOPO=$(vastai show user --raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["credit"])')
+          export ACCESE=$(vastai show instances --raw | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+          python3 - <<'PY'
+          import json, os, glob, subprocess
+          src = "arrivi/parti" if os.path.isdir("arrivi/parti") else "arrivi/pacco"
+          av = {c: json.load(open(f"{src}/av_{c}.json")) for c in ("Nadia", "Isla")}
+          cid = {c: open(f"arrivi/pacco/cid_{c}.txt").read().strip() for c in av}
+          esiti = [json.load(open(f)) for f in glob.glob("arrivi/video-parte-*/esito_*.json")]
+          for e in esiti:
+              for i, s in e["video"].items():
+                  c = "Nadia" if i.startswith("fv") else "Isla"; av[c]["video"][i] = s
+          spesa = round(float("${{ needs.prepara.outputs.credito }}" or 0) - float(os.environ["CREDITO_DOPO"]), 3)
+          for c in av:
+              v = av[c]["video"]; n = sum(1 for s in v.values() if s == "prodotto")
+              av[c].update(fase="Finito", salvati=n, totale=len(v), spesa=spesa, schede=[{k: e[k] for k in e if k != "video"} for e in esiti], macchine_accese=int(os.environ["ACCESE"]))
+              subprocess.run(["gh", "api", "-X", "PATCH", f"repos/{os.environ['GITHUB_REPOSITORY']}/check-runs/{cid[c]}", "--input", "-"],
+                             input=json.dumps({"status": "completed", "conclusion": "success" if n else "failure", "output": {"title": "Finito", "summary": json.dumps(av[c], ensure_ascii=False)}}).encode(), capture_output=True)
+              print(c, n, "prodotti su", len(v))
+          print("spesa", spesa, "$, schede accese", os.environ["ACCESE"])
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write(f"## Materiale social\nVideo prodotti: Nadia {av['Nadia']['salvati']}, Isla {av['Isla']['salvati']}. Spesa: {spesa} $. Schede accese: {os.environ['ACCESE']}.\n")
+          PY

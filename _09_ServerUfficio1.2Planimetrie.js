@@ -249,7 +249,9 @@ require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerCo
     const ultimo = giri[0];
     const lavori = ultimo ? ((await apiGitHub(`repos/${REPO_UFFICIO}/actions/runs/${ultimo.id}/jobs`)).jobs || []) : [];
     // l'avanzamento che ogni produttore pubblica ogni 30 secondi nel suo controllo GitHub "Materiale social <nome>"
-    const controlli = ultimo ? ((await apiGitHub(`repos/${REPO_UFFICIO}/commits/${ultimo.head_sha}/check-runs?per_page=50`)).check_runs || []) : [];
+    const controlli = [];
+    if (ultimo) for (const chi of ['Nadia', 'Isla'])
+      controlli.push(...(((await apiGitHub(`repos/${REPO_UFFICIO}/commits/${ultimo.head_sha}/check-runs?check_name=${encodeURIComponent('Materiale social ' + chi)}&per_page=5`)).check_runs) || []));
     const produttori = controlli.filter(c => c.name.startsWith('Materiale social ') && String(c.external_id) === String(ultimo.id))
       .map(c => { try { return JSON.parse(c.output.summary); } catch { return null; } }).filter(Boolean);
     return {
@@ -281,6 +283,9 @@ require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerCo
     }
     return { ok: false, errore: 'Azione sconosciuta.' };
   },
+  // GET /MaterialeSocialVivo  ->  ogni scheda del giro di secondo in secondo: parte, GPU, paese, prezzo, fotogrammi, velocità, registro
+  'GET /MaterialeSocialVivo': async () => ({ errore: vivoErrore, ora: new Date().toISOString(),
+    schede: Object.values(vivoSchede).map(({ ssh, host, ...s }) => s).sort((a, b) => String(a.parte).localeCompare(String(b.parte))) }),
   // POST /Obiettivo { obiettivo, ricercatori, quanti, entro, zone }  ->  nuova riga attiva nella scheda Obiettivi
   'POST /Obiettivo': async ({ datiInviati: d }) => {
     const quanti = parseInt(d.quanti, 10);
@@ -366,7 +371,7 @@ async function leggiVideoDaGitHub() {
       await scaricaFile(`https://api.github.com/repos/${REPO_UFFICIO}/actions/artifacts/${a.id}/zip`, zip, true);
       execFileSync('powershell', ['-NoProfile', '-Command', `Expand-Archive -LiteralPath '${zip}' -DestinationPath '${path.join(tmp, 'x')}' -Force`], { windowsHide: true });
       const copia = (da, a2) => { for (const n of fs.readdirSync(da)) { const s = path.join(da, n), d = path.join(a2, n);
-        if (fs.statSync(s).isDirectory()) { fs.mkdirSync(d, { recursive: true }); copia(s, d); } else if (!fs.existsSync(d)) fs.copyFileSync(s, d); } };
+        if (fs.statSync(s).isDirectory()) { fs.mkdirSync(d, { recursive: true }); copia(s, d); } else if (n.endsWith('.mp4') && !fs.existsSync(d)) fs.copyFileSync(s, d); } };
       fs.mkdirSync(MEDIA_DISCO, { recursive: true }); copia(path.join(tmp, 'x'), MEDIA_DISCO);
       fs.rmSync(tmp, { recursive: true, force: true });
       letti.push(a.id); fs.writeFileSync(VIDEO_LETTI, JSON.stringify(letti));
@@ -375,3 +380,59 @@ async function leggiVideoDaGitHub() {
   videoInCorso = false;
 }
 setTimeout(leggiVideoDaGitHub, 10000); setInterval(leggiVideoDaGitHub, 5 * 60000);
+
+// ---- Materiale social dal vivo: il server legge ogni scheda Vast del giro di secondo in secondo ----
+// Le schede del giro hanno l'etichetta ms|<giro>|<parte>. Per ognuna resta aperto un collegamento SSH che ogni secondo
+// manda l'avanzamento del render (stato.json di vast_rendi) e le ultime righe del registro.
+const CHIAVI_VAST = path.join(__dirname, '..', '..', '..', '_01_ChiaviAccessiServiziTerzeParti', '_12_Vast');
+const vivoSchede = {};          // id -> { parte, giro, gpu, paese, prezzo, stato, ssh, render, registro, aggiornato }
+let vivoErrore = '';
+const leggiSchedeVast = () => new Promise(ok => {
+  let chiave = '';
+  try { chiave = fs.readFileSync(path.join(CHIAVI_VAST, '_01_ChiaveVast.txt'), 'utf8').trim(); } catch { vivoErrore = 'manca la chiave Vast in _12_Vast'; return ok(null); }
+  https.get('https://console.vast.ai/api/v0/instances/?owner=me', { headers: { Authorization: 'Bearer ' + chiave, Accept: 'application/json' } }, r => {
+    let t = ''; r.on('data', p => (t += p)); r.on('end', () => { try { ok(JSON.parse(t).instances || []); } catch { ok(null); } });
+  }).on('error', () => ok(null));
+});
+function collegaScheda(id, s) {
+  const chiave = path.join(CHIAVI_VAST, '_02_ChiaveSSH');
+  if (!fs.existsSync(chiave)) { vivoErrore = 'manca la chiave SSH in _12_Vast'; return; }
+  const giro = 'while true; do echo "@@INIZIO"; cat /root/lavoro/_00_Motore/strumenti/stato.json 2>/dev/null; echo; echo "@@REGISTRO"; tail -n 6 /root/lavoro/_00_Motore/strumenti/vast_rendi.log 2>/dev/null; echo "@@FINE"; sleep 1; done';
+  const p = require('child_process').spawn('ssh', ['-i', chiave, '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=NUL', '-o', 'ConnectTimeout=8', '-o', 'ServerAliveInterval=15',
+    '-p', String(s.porta), 'root@' + s.host, giro], { windowsHide: true });
+  let buffer = '';
+  p.stdout.on('data', d => {
+    buffer += d.toString();
+    let k;
+    while ((k = buffer.indexOf('@@FINE')) >= 0) {
+      const blocco = buffer.slice(0, k); buffer = buffer.slice(k + 6);
+      const a = blocco.indexOf('@@INIZIO'), b = blocco.indexOf('@@REGISTRO');
+      if (a < 0 || b < 0) continue;
+      try { const j = blocco.slice(a + 8, b).trim(); if (j) s.render = JSON.parse(j); } catch {}
+      s.registro = blocco.slice(b + 10).trim().split('\n').filter(Boolean).slice(-6);
+      s.aggiornato = new Date().toISOString(); s.collegata = true;
+    }
+  });
+  p.on('close', () => { s.ssh = null; s.collegata = false; });
+  s.ssh = p;
+}
+async function aggiornaVivo() {
+  const lista = await leggiSchedeVast();
+  if (!lista) return;
+  vivoErrore = '';
+  const viste = new Set();
+  for (const x of lista) {
+    const et = String(x.label || '');
+    if (!et.startsWith('ms|')) continue;
+    const [, giro, parte] = et.split('|'), id = String(x.id); viste.add(id);
+    const porta = x.ports && x.ports['22/tcp'] && x.ports['22/tcp'][0] ? x.ports['22/tcp'][0].HostPort : x.ssh_port;
+    const host = x.public_ipaddr || x.ssh_host;
+    const s = vivoSchede[id] || (vivoSchede[id] = { id, giro, parte, inizio: new Date().toISOString() });
+    Object.assign(s, { gpu: x.gpu_name, paese: x.geolocation, prezzo: x.dph_total, stato: x.actual_status, host: (host || '').trim(), porta,
+      accesa_min: x.start_date ? Math.round((Date.now() / 1000 - x.start_date) / 60) : null });
+    if (x.actual_status === 'running' && s.host && s.porta && !s.ssh) collegaScheda(id, s);
+  }
+  for (const id of Object.keys(vivoSchede)) if (!viste.has(id)) { const s = vivoSchede[id]; if (s.ssh) s.ssh.kill(); s.stato = 'distrutta'; if (!s.fine) s.fine = new Date().toISOString(); }
+  for (const id of Object.keys(vivoSchede)) if (vivoSchede[id].fine && Date.now() - new Date(vivoSchede[id].fine) > 30 * 60000) delete vivoSchede[id];
+}
+setInterval(aggiornaVivo, 3000);
