@@ -35,6 +35,8 @@ async function gettoneGoogle(scrittura = false) {
 
 // Le skill dei dipendenti: cartella dell'ufficio 1.2 nelle skill DepthX (sola lettura)
 const CARTELLA_SKILL = 'C:\\Users\\Administrator\\.claude\\skills\\_02_Business\\_01_ClaudeInDepthXLabs\\_02_LineeAziendali\\_01_Linea1_ProductionDepartement\\_02_Linea_1.2_TOURPLANIMETRIA3D\\_02_Ufficio_1.2_Planimetrie';
+// Le skill del personale dell'Ufficio 4.5 Risorse Umane (sola lettura, per la pagina del riepilogo dei dipendenti)
+const CARTELLA_SKILL_RISORSE_UMANE = 'C:\\Users\\Administrator\\.claude\\skills\\_02_Business\\_01_ClaudeInDepthXLabs\\_02_LineeAziendali\\_04_Linea4_Amministrazione\\_05_Ufficio_4.5_RisorseUmane';
 
 async function leggiStato(foglio) {
   const r = await richiesta(`https://sheets.googleapis.com/v4/spreadsheets/${foglio}/values/Stato!A2:B50`, { headers: { Authorization: 'Bearer ' + await gettoneGoogle() } });
@@ -72,16 +74,17 @@ const conCache = async (chiave, ms, fare) => {
 };
 // minuti di GitHub del mese: somma della durata di ogni lavoro, arrotondata al minuto come fa GitHub
 const { execFile } = require('child_process');
-const gh = args => new Promise(ok => execFile('C:\\Program Files\\GitHub CLI\\gh.exe', args, { maxBuffer: 20e6 }, (e, out) => ok(e ? '' : out)));
+// API pubblica di GitHub (il server gira come utente di sistema e non vede l'accesso di gh): il repository è pubblico
+const apiGitHub = url => richiesta('https://api.github.com/' + url, { headers: { 'User-Agent': 'DepthX-CentroGestione', Accept: 'application/vnd.github+json' } }).then(r => r.codice === 200 ? JSON.parse(r.testo) : {});
 async function minutiGitHub() {
   const inizio = new Date(); inizio.setDate(1); const dal = inizio.toISOString().slice(0, 10);
-  const giri = (await gh(['api', `repos/depthxlabs/depthx-ufficio-1.2/actions/runs?per_page=100&created=%3E%3D${dal}`, '--jq', '.workflow_runs[].id'])).split('\n').filter(Boolean);
+  const giri = ((await apiGitHub(`repos/depthxlabs/depthx-ufficio-1.2/actions/runs?per_page=100&created=%3E%3D${dal}`)).workflow_runs || []).map(r => r.id);
   let minuti = 0;
   for (const id of giri) {
-    const righe = (await gh(['api', `repos/depthxlabs/depthx-ufficio-1.2/actions/runs/${id}/jobs`, '--jq', '.jobs[]|[.started_at,.completed_at]|@tsv'])).split('\n').filter(Boolean);
-    for (const r of righe) { const [a, b] = r.split('\t'); if (a && b) minuti += Math.ceil((new Date(b) - new Date(a)) / 60000); }
+    for (const j of (await apiGitHub(`repos/depthxlabs/depthx-ufficio-1.2/actions/runs/${id}/jobs`)).jobs || [])
+      if (j.started_at && j.completed_at) minuti += Math.ceil((new Date(j.completed_at) - new Date(j.started_at)) / 60000);
   }
-  return { minuti, giri: giri.length, gratis: 2000 };
+  return { minuti, giri: giri.length, gratis: 'illimitati (repository pubblico)' };
 }
 
 let cacheChiLavora = { quando: 0, dati: {} };
@@ -145,6 +148,20 @@ require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerCo
     const cartella = indirizzo.searchParams.get('cartella') || '';
     if (!/^_\d{2}_[A-Za-z]+\/_\d{2}_[A-Za-z0-9]+_[A-Za-z0-9]+$/.test(cartella)) return { esiste: false };
     const dove = path.join(CARTELLA_SKILL, ...cartella.split('/'));
+    if (!fs.existsSync(dove)) return { esiste: false };
+    const file = fs.readdirSync(dove).filter(n => n.endsWith('.md')).sort();
+    return { esiste: true, file: file.map(n => ({ nome: n, testo: fs.readFileSync(path.join(dove, n), 'utf8') })) };
+  },
+  // GET /RisorseUmane  ->  tutte le assegnazioni (non solo le ultime 80) e i ricercatori, per il riepilogo dell'Ufficio 4.5 Risorse Umane (sola lettura)
+  'GET /RisorseUmane': async () => conCache('risorseumane', 60000, async () => ({
+    assegnazioni: await leggiIntervallo(ZONE_E_QUOTE, 'Assegnazioni!A2:I5000'),
+    ricercatori: await leggiIntervallo(ZONE_E_QUOTE, 'Ricercatori!A2:E50'),
+  })),
+  // GET /SkillRisorseUmane?cartella=_01_Direzione/_01_Harper_DirettriceRisorseUmane  ->  le skill del personale dell'Ufficio 4.5 (sola lettura)
+  'GET /SkillRisorseUmane': async ({ indirizzo }) => {
+    const cartella = indirizzo.searchParams.get('cartella') || '';
+    if (!/^_\d{2}_[A-Za-z]+\/_\d{2}_[A-Za-z0-9]+_[A-Za-z0-9]+$/.test(cartella)) return { esiste: false };
+    const dove = path.join(CARTELLA_SKILL_RISORSE_UMANE, ...cartella.split('/'));
     if (!fs.existsSync(dove)) return { esiste: false };
     const file = fs.readdirSync(dove).filter(n => n.endsWith('.md')).sort();
     return { esiste: true, file: file.map(n => ({ nome: n, testo: fs.readFileSync(path.join(dove, n), 'utf8') })) };
