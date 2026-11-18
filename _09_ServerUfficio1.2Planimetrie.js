@@ -124,22 +124,29 @@ const caricaAdrian = async () => {
 require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerConLogEControlloAcceso').avviaServer('Ufficio12Planimetrie', {
   // GET /ChiStaLavorando?fogli=id1,id2,...  ->  { id: { inCorso, attivita, zona, scritte, quota, ... } } per i puntini, il conteggio e i capi area
   'GET /ChiStaLavorando': async ({ indirizzo }) => {
-    const fogli = (indirizzo.searchParams.get('fogli') || '').split(',').filter(f => /^[A-Za-z0-9_-]{20,}$/.test(f)).slice(0, 60);
-    if (Date.now() - cacheChiLavora.quando > 30000) {
+    // legge sempre tutti i fogli della Ricerca (la risposta vale per chiunque la chieda): subito dalla cache, aggiornata dietro le quinte
+    return conCache('chi', 30000, async () => {
       const dati = {};
-      for (const f of fogli) {
+      for (const f of Object.values(FOGLI_RICERCA)) {
         try {
           const s = await leggiStato(f);
           dati[f] = s.esiste ? { inCorso: !!s.inCorso, attivita: s.attivita || '', zona: s.zona || '', scritte: s.scritte || 0, quota: s.quota || 0,
                                  aggiornato: s.aggiornato || '', fine: s.fine || '', esito: s.esito || '' } : { inCorso: false, mai: true };
         } catch { dati[f] = { inCorso: false, errore: true }; }
       }
-      cacheChiLavora = { quando: Date.now(), dati };
-    }
-    return cacheChiLavora.dati;
+      return dati;
+    });
   },
   // GET /Adrian  ->  obiettivi, calendario di lavoro (assegnazioni) e quote dei servizi
   'GET /Adrian': async () => conCache('adrian', 4 * 60000, caricaAdrian),
+  // GET /Mike  ->  il Download: lavoro passato da Adrian, contatti scaricati, stato dal vivo di ogni membro della squadra
+  'GET /Mike': async () => conCache('mike', 60000, async () => {
+    const passaggi = (await leggiIntervallo(ZONE_E_QUOTE, 'PassaggiAlDownload!A2:K2000')).filter(x => x[0]).reverse();
+    const download = (await leggiIntervallo(ZONE_E_QUOTE, 'Download!A2:J5000')).filter(x => x[0]).reverse();
+    const statoRighe = await leggiIntervallo(ZONE_E_QUOTE, 'StatoDownload!A2:H20');
+    const squadra = statoRighe.filter(x => x[0]).map(x => { let reg = []; try { reg = JSON.parse(x[7] || '[]'); } catch {} return { nome: x[0], alLavoro: x[1] === 'sì', attivita: x[2] || '', aggiornato: x[3] || '', fatti: +x[4] || 0, daFare: +x[5] || 0, fineStimata: x[6] || '', registro: reg }; });
+    return { passaggi, download, squadra, drive: 'https://drive.google.com/drive/folders/1z2No_Q1avXQBqC0eoP7K6juGUjW6Iqpd' };
+  }),
   // GET /Capacita  ->  quanto può dare ogni ricercatore: limiti degli strumenti e resa reale dei giri già fatti
   'GET /Capacita': async () => conCache('capacita', 5 * 60000, async () => {
     const a = await conCache('adrian', 4 * 60000, caricaAdrian);
@@ -160,7 +167,11 @@ require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerCo
   // POST /Obiettivo { obiettivo, ricercatori, quanti, entro, zone }  ->  nuova riga attiva nella scheda Obiettivi
   'POST /Obiettivo': async ({ datiInviati: d }) => {
     const quanti = parseInt(d.quanti, 10);
-    if (!d.obiettivo || !(quanti > 0)) return { ok: false, errore: "Servono il nome dell'obiettivo e il numero di contatti." };
+    if (!(quanti > 0)) return { ok: false, errore: 'Serve il numero di contatti.' };
+    // codice automatico: OB-001, OB-002, ...
+    const esistenti = await leggiIntervallo(ZONE_E_QUOTE, 'Obiettivi!A2:A100');
+    const ultimo = Math.max(0, ...esistenti.map(x => +((x[0] || '').match(/^OB-(\d+)/) || [0, 0])[1]));
+    d.obiettivo = 'OB-' + String(ultimo + 1).padStart(3, '0');
     const riga = [[String(d.obiettivo).slice(0, 120), String(d.ricercatori || 'tutti').slice(0, 300), quanti, new Date().toISOString().slice(0, 10),
                    String(d.entro || ''), String(d.zone || '').slice(0, 300), 0, 'attivo']];
     const r = await richiesta(`https://sheets.googleapis.com/v4/spreadsheets/${ZONE_E_QUOTE}/values/Obiettivi!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
@@ -181,7 +192,7 @@ require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerCo
   // GET /Skill?cartella=_01_Ricerca/_02_Anna_AgenzieDaMaps  ->  il testo delle skill del dipendente, file per file in ordine
   'GET /Skill': async ({ indirizzo }) => {
     const cartella = indirizzo.searchParams.get('cartella') || '';
-    if (!/^_\d{2}_[A-Za-z]+\/_\d{2}_[A-Za-z0-9]+_[A-Za-z0-9]+$/.test(cartella)) return { esiste: false };
+    if (!/^_\d{2}_[A-Za-z0-9]+\/_\d{2}_[A-Za-z0-9]+_[A-Za-z0-9]+$/.test(cartella)) return { esiste: false };
     const dove = path.join(CARTELLA_SKILL, ...cartella.split('/'));
     if (!fs.existsSync(dove)) return { esiste: false };
     const file = fs.readdirSync(dove).filter(n => n.endsWith('.md')).sort();
@@ -195,7 +206,7 @@ require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerCo
   // GET /SkillRisorseUmane?cartella=_01_Direzione/_01_Harper_DirettriceRisorseUmane  ->  le skill del personale dell'Ufficio 4.5 (sola lettura)
   'GET /SkillRisorseUmane': async ({ indirizzo }) => {
     const cartella = indirizzo.searchParams.get('cartella') || '';
-    if (!/^_\d{2}_[A-Za-z]+\/_\d{2}_[A-Za-z0-9]+_[A-Za-z0-9]+$/.test(cartella)) return { esiste: false };
+    if (!/^_\d{2}_[A-Za-z0-9]+\/_\d{2}_[A-Za-z0-9]+_[A-Za-z0-9]+$/.test(cartella)) return { esiste: false };
     const dove = path.join(CARTELLA_SKILL_RISORSE_UMANE, ...cartella.split('/'));
     if (!fs.existsSync(dove)) return { esiste: false };
     const file = fs.readdirSync(dove).filter(n => n.endsWith('.md')).sort();
@@ -223,5 +234,6 @@ require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerCo
 });
 
 // Precaricamento: appena acceso e poi ogni 4 minuti rilegge pannello di Adrian e CRM, così le pagine si aprono all'istante
-const precarica = async () => { for (const [k, f] of [['adrian', '/Adrian'], ['crm', '/CRM']]) { try { delete cache[k]; await new Promise(ok => require('http').get(`http://127.0.0.1:8828${f}`, r => { r.resume(); r.on('end', ok); }).on('error', ok)); } catch {} } };
+const precarica = async () => { for (const [k, f] of [['adrian', '/Adrian'], ['crm', '/CRM'], ['mike', '/Mike'], ['chi', '/ChiStaLavorando'], ['capacita', '/Capacita']]) { try { await new Promise(ok => require('http').get(`http://127.0.0.1:8828${f}`, r => { r.resume(); r.on('end', ok); }).on('error', ok)); } catch {} } };
 setTimeout(precarica, 3000); setInterval(precarica, 4 * 60000);
+setInterval(() => { require('http').get('http://127.0.0.1:8828/ChiStaLavorando', r => r.resume()).on('error', () => {}); }, 30000);

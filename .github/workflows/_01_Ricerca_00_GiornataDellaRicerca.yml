@@ -1,11 +1,11 @@
 # La giornata della Ricerca (Ufficio 1.2 Planimetrie 3D): Adrian assegna zone e quote dal foglio "_00_ZoneEQuote",
 # i ricercatori lavorano al massimo 6 alla volta (Google Sheet: 60 richieste al minuto), poi Adrian scrive gli esiti.
-# Parte da sola ogni 3 ore: Adrian assegna solo se c'è un obiettivo attivo non ancora raggiunto, oppure a mano da GitHub.
+# Parte da sola ogni 10 minuti: Adrian dà lavoro a chi è libero, solo se c'è un obiettivo attivo non ancora raggiunto.
 # Ogni voce dell'elenco: dipendente|città|provincia|quota|maps|brave
-name: Ricerca 00 Ciclo della Ricerca ogni 3 ore (Adrian)
+name: Ricerca 00 Ciclo della Ricerca ogni 10 minuti (Adrian)
 on:
   schedule:
-    - cron: "0 */3 * * *"
+    - cron: "*/10 * * * *"
   workflow_dispatch:
 concurrency: giornata-ricerca
 env:

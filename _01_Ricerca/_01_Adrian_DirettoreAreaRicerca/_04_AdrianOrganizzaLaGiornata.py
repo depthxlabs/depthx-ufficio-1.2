@@ -4,7 +4,7 @@ Adrian gestisce l'area Ricerca: obiettivi, zone, quote e agenti. Hector coordina
 Il suo strumento è il foglio "_00_ZoneEQuote" (schede Obiettivi, Zone, Ricercatori, Assegnazioni, Quote servizi).
 Michele scrive l'obiettivo dal pannello di Adrian nel Centro Gestione; Adrian lo divide tra i suoi ricercatori.
 
-  --fase piano      ogni 3 ore: per ogni obiettivo attivo non ancora raggiunto dà a ogni suo ricercatore libero
+  --fase piano      ogni 10 minuti: per ogni obiettivo attivo non ancora raggiunto dà a ogni suo ricercatore libero
                     la prossima zona non ancora fatta, con quota = il minimo tra la sua quota e quanto manca.
                     Senza obiettivi attivi non assegna niente e non consuma minuti.
   --fase controllo  ogni ora: per ogni assegnazione aperta guarda se il ricercatore ha finito, scrive l'esito
@@ -67,7 +67,9 @@ def piano():
         if manca <= 0:
             continue
         chi = list(quote) if o[1].strip().lower() in ("", "tutti") else [n.strip() for n in o[1].split(",") if n.strip() in quote]
-        zone_ob = [z for z in zone if not o[5].strip() or z[0].lower() in [c.strip().lower() for c in o[5].split(",")]]
+        # prima le città dell'obiettivo (se ci sono), poi i dintorni: tutte le altre città attive in ordine di priorità
+        scelte = [c.strip().lower() for c in o[5].split(",") if c.strip()]
+        zone_ob = [z for z in zone if z[0].lower() in scelte] + [z for z in zone if z[0].lower() not in scelte]
         for nome in chi:
             if manca <= 0 or nome in occupati or not zone_ob:
                 continue
