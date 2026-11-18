@@ -1,0 +1,2 @@
+﻿f01o|_01_FloorView/_01_BilocaleConBalcone/codice/index.html?o=o|orizzontale|C:\Users\Administrator\Desktop\_24_Linea1.2_FloorViewEUnfold\_01_FloorView\_01_BilocaleConBalcone\DepthX_FloorView_01_BilocaleConBalcone_orizzontale_60fps.mp4
+f01v|_01_FloorView/_01_BilocaleConBalcone/codice/index.html?o=v|verticale|C:\Users\Administrator\Desktop\_24_Linea1.2_FloorViewEUnfold\_01_FloorView\_01_BilocaleConBalcone\DepthX_FloorView_01_BilocaleConBalcone_verticale_60fps.mp4

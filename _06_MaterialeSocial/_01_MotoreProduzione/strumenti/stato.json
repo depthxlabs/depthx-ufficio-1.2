@@ -1,0 +1,65 @@
+{
+ "fotogrammi": 30998,
+ "totale": 30998,
+ "secondi": 420,
+ "ritmo": 73.8,
+ "restanti_min": 0,
+ "video": [
+  {
+   "id": "f02o",
+   "fatto": true
+  },
+  {
+   "id": "f02v",
+   "fatto": true
+  },
+  {
+   "id": "f03o",
+   "fatto": true
+  },
+  {
+   "id": "f03v",
+   "fatto": true
+  },
+  {
+   "id": "f04o",
+   "fatto": true
+  },
+  {
+   "id": "f04v",
+   "fatto": true
+  },
+  {
+   "id": "u01o",
+   "fatto": true
+  },
+  {
+   "id": "u01v",
+   "fatto": true
+  },
+  {
+   "id": "u02o",
+   "fatto": true
+  },
+  {
+   "id": "u02v",
+   "fatto": true
+  },
+  {
+   "id": "u03o",
+   "fatto": true
+  },
+  {
+   "id": "u03v",
+   "fatto": true
+  },
+  {
+   "id": "u04o",
+   "fatto": true
+  },
+  {
+   "id": "u04v",
+   "fatto": true
+  }
+ ]
+}

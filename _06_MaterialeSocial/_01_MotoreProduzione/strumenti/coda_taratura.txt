@@ -1,0 +1,4 @@
+t24f|_01_FloorView/_03_VillaConPortico/codice/index.html?o=v&pz=24|verticale|_00_Motore/_taratura/a.mp4
+t32f|_01_FloorView/_03_VillaConPortico/codice/index.html?o=v|verticale|_00_Motore/_taratura/b.mp4
+t24u|_02_Unfold/_01_BilocaleOpenSpace/codice/index.html?o=o&pz=24|orizzontale|_00_Motore/_taratura/c.mp4
+t32u|_02_Unfold/_01_BilocaleOpenSpace/codice/index.html?o=o|orizzontale|_00_Motore/_taratura/d.mp4

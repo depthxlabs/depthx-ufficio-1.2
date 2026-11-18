@@ -1,0 +1,29 @@
+{
+  "idModello": "HDR_00773",
+  "nome": "StudioPiccolo09",
+  "nomePrecedente": "Studio Piccolo 09",
+  "libreria": "HDRI",
+  "categoria": "_12_Studio",
+  "fonte": "Poly Haven",
+  "percorsoDrive": "_01_LibreriePerBlender/_02_HDRI/_12_Studio/HDR_00773_StudioPiccolo09",
+  "linkDrive": "https://drive.google.com/drive/folders/1PWxIJhnhkhrVFwh9_EciGe6bRrfyxIYw",
+  "formatoFileDiLavoro": [
+    "hdr"
+  ],
+  "fileDiLavoro": [
+    "studio_small_09_4k.hdr"
+  ],
+  "risoluzione": "4k",
+  "dimensioneMB": 24.9,
+  "licenza": "CC0 (uso commerciale libero, licenza della fonte)",
+  "anteprima": "sì",
+  "registroUtilizzi": [],
+  "analisiQualita": {
+    "voto": "Excellent",
+    "motivi": [
+      "risoluzione 4k"
+    ],
+    "metodo": "automatica dai dati dei file, da confermare guardando l'anteprima"
+  },
+  "censitoIl": "2026-11-04"
+}
