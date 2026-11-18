@@ -7,19 +7,25 @@ on:
       provincia: { description: "Sigla della provincia", required: true, default: "BS" }
       quota: { description: "Righe da scrivere", required: true, default: "10" }
 concurrency: { group: ricerca-ester, cancel-in-progress: false }
+permissions:
+  contents: read
+  checks: write
+env:
+  GH_TOKEN: ${{ github.token }}
 jobs:
   ricerca:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: depthxlabs/depthx-dati-1.2, ssh-key: "${{ secrets.CHIAVE_DATI_RICERCA }}", path: dati, sparse-checkout: _01_ListaCRM }
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install requests google-auth
+      - run: pip install requests
       - name: Ester al lavoro
         env:
           CHIAVE_GOOGLE_MAPS: ${{ secrets.CHIAVE_GOOGLE_MAPS }}
-          CHIAVE_GOOGLE_SHEET: ${{ secrets.CHIAVE_GOOGLE_SHEET }}
           PYTHONIOENCODING: utf-8
           TZ: Europe/Rome
         run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_01_MotoreDellaRicercaSuMaps.py" --dipendente Ester --citta "${{ inputs.citta }}" --provincia "${{ inputs.provincia }}" --quota "${{ inputs.quota }}"

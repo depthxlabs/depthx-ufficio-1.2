@@ -1,0 +1,35 @@
+# La Lettura planimetrie (Ufficio 1.2 Planimetrie 3D, capo area Lucas): programma indipendente, con la sua chiave di accesso.
+# Legge le planimetrie scaricate dal Download nel repository privato depthx-dati-1.2 e scrive una bolla JSON per ognuna.
+name: Lettura 00 Lettura planimetrie (Lucas)
+on:
+  workflow_run:
+    workflows: ["Download 00 Ciclo di Mike ogni ora"]
+    types: [completed]
+  schedule:
+    - cron: "15 * * * *"
+  workflow_dispatch:
+    inputs:
+      rifai: { description: "Rifà anche le planimetrie che hanno già la bolla (si/no)", required: false, default: "no" }
+concurrency: lettura-planimetrie
+permissions:
+  contents: read
+jobs:
+  lettura:
+    name: Lucas legge le planimetrie
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: depthxlabs/depthx-dati-1.2, ssh-key: "${{ secrets.CHIAVE_DATI_LETTURA }}", path: dati }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Tesseract, lettore dei PDF e OpenCV
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q tesseract-ocr tesseract-ocr-ita poppler-utils > /dev/null
+          pip install -q opencv-python-headless numpy pytesseract
+      - name: Lucas al lavoro
+        env:
+          PYTHONIOENCODING: utf-8
+          TZ: Europe/Rome
+        run: python -I "_03_LetturaPlanimetrie/_01_Lucas_DirettoreAreaLetturaPlanimetrie/_01_MotoreDellaLettura.py" --dati dati --massimo 60 ${{ inputs.rifai == 'si' && '--rifai' || '' }}

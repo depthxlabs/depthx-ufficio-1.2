@@ -11,6 +11,12 @@ on:
     - cron: "45 * * * *"
   workflow_dispatch:
 concurrency: ciclo-download
+permissions:
+  contents: read
+  checks: write
+  actions: write
+env:
+  GH_TOKEN: ${{ github.token }}
 jobs:
   scarica:
     name: ${{ matrix.dipendente }}
@@ -22,14 +28,13 @@ jobs:
         dipendente: [Kevin, Rosa, Sara, Paul, Noah]
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: depthxlabs/depthx-dati-1.2, ssh-key: "${{ secrets.CHIAVE_DATI_DOWNLOAD }}", path: dati, sparse-checkout: _01_ListaCRM }
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install requests google-auth
+      - run: pip install requests
       - name: Al lavoro
         env:
-          CHIAVE_GOOGLE_SHEET: ${{ secrets.CHIAVE_GOOGLE_SHEET }}
-          SEGRETO_DOWNLOAD_DRIVE: ${{ secrets.SEGRETO_DOWNLOAD_DRIVE }}
-          INDIRIZZO_DOWNLOAD_DRIVE: ${{ vars.INDIRIZZO_DOWNLOAD_DRIVE }}
           PYTHONIOENCODING: utf-8
           TZ: Europe/Rome
         run: python -I "_02_Download/_01_Mike_DirettoreAreaDownload/_01_MotoreDelDownload.py" --dipendente "${{ matrix.dipendente }}" --massimo 40
@@ -43,12 +48,13 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: depthxlabs/depthx-dati-1.2, ssh-key: "${{ secrets.CHIAVE_DATI_DOWNLOAD }}", path: dati, sparse-checkout: _01_ListaCRM }
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install requests google-auth
+      - run: pip install requests
       - id: stato
         env:
-          CHIAVE_GOOGLE_SHEET: ${{ secrets.CHIAVE_GOOGLE_SHEET }}
           PYTHONIOENCODING: utf-8
         run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_04_AdrianOrganizzaLaGiornata.py" --fase stato
       - name: Giro successivo del Download, senza sosta

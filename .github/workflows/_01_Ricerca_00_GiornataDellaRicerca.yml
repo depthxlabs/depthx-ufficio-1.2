@@ -9,8 +9,13 @@ on:
   workflow_dispatch:
 concurrency: giornata-ricerca
 env:
+  GH_TOKEN: ${{ github.token }}
   PYTHONIOENCODING: utf-8
   TZ: Europe/Rome
+permissions:
+  contents: read
+  checks: write
+  actions: write
 jobs:
   piano:
     name: Adrian assegna zone e quote
@@ -19,12 +24,12 @@ jobs:
       lavori: ${{ steps.piano.outputs.lavori }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: depthxlabs/depthx-dati-1.2, ssh-key: "${{ secrets.CHIAVE_DATI_RICERCA }}", path: dati, sparse-checkout: _01_ListaCRM }
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install requests google-auth
+      - run: pip install requests
       - id: piano
-        env:
-          CHIAVE_GOOGLE_SHEET: ${{ secrets.CHIAVE_GOOGLE_SHEET }}
         run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_04_AdrianOrganizzaLaGiornata.py" --fase piano
   lavoro:
     name: ${{ matrix.voce }}
@@ -38,13 +43,14 @@ jobs:
         voce: ${{ fromJSON(needs.piano.outputs.lavori) }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: depthxlabs/depthx-dati-1.2, ssh-key: "${{ secrets.CHIAVE_DATI_RICERCA }}", path: dati, sparse-checkout: _01_ListaCRM }
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install requests google-auth
+      - run: pip install requests
       - name: Il ricercatore al lavoro
         env:
           VOCE: ${{ matrix.voce }}
-          CHIAVE_GOOGLE_SHEET: ${{ secrets.CHIAVE_GOOGLE_SHEET }}
           CHIAVE_GOOGLE_MAPS: ${{ secrets.CHIAVE_GOOGLE_MAPS }}
           CHIAVE_BRAVE_SEARCH: ${{ secrets.CHIAVE_BRAVE_SEARCH }}
         run: |
@@ -61,12 +67,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: depthxlabs/depthx-dati-1.2, ssh-key: "${{ secrets.CHIAVE_DATI_RICERCA }}", path: dati, sparse-checkout: _01_ListaCRM }
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install requests google-auth
-      - env:
-          CHIAVE_GOOGLE_SHEET: ${{ secrets.CHIAVE_GOOGLE_SHEET }}
-        run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_04_AdrianOrganizzaLaGiornata.py" --fase controllo
+      - run: pip install requests
+      - run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_04_AdrianOrganizzaLaGiornata.py" --fase controllo
   riparti:
     name: Adrian riparte subito se c'è un obiettivo attivo
     needs: [piano, chiusura]
@@ -77,12 +83,12 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: depthxlabs/depthx-dati-1.2, ssh-key: "${{ secrets.CHIAVE_DATI_RICERCA }}", path: dati, sparse-checkout: _01_ListaCRM }
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install requests google-auth
+      - run: pip install requests
       - id: stato
-        env:
-          CHIAVE_GOOGLE_SHEET: ${{ secrets.CHIAVE_GOOGLE_SHEET }}
         run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_04_AdrianOrganizzaLaGiornata.py" --fase stato
       - name: Download subito, se c'è da scaricare
         if: steps.stato.outputs.da_scaricare != '0'

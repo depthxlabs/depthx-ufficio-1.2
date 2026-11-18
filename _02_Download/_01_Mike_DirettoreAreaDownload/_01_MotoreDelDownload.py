@@ -1,22 +1,22 @@
 """MOTORE DEL DOWNLOAD, Ufficio 1.2 Planimetrie 3D, area Download (capo area Mike).
 
 Ogni membro della squadra di Mike lavora una sola fonte:
-  Kevin  agenzie       (righe di Anna, Max, Brian, Mia)      -> Drive _01_SitiDelleAgenzie
-  Rosa   costruttori   (righe di Liam, Mark, Elen, Leo)      -> Drive _02_SitiDiCostruttoriEStudi
-  Sara   portali       (righe di Nora)                       -> Drive _03_SubitoImmobiliareIdealista
-  Paul   casevacanza   (righe di Kera ed Ester)                     -> Drive _04_BookingECaseVacanza
-  Noah   progetti      (righe di Sam)                        -> Drive _05_NuoveCostruzioniECrowdfunding
+  Kevin  agenzie       (righe di Anna, Max, Brian, Mia)      -> _01_SitiDelleAgenzie
+  Rosa   costruttori   (righe di Liam, Mark, Elen, Leo)      -> _02_SitiDiCostruttoriEStudi
+  Sara   portali       (righe di Nora)                       -> _03_SubitoImmobiliareIdealista
+  Paul   casevacanza   (righe di Kera ed Ester)                     -> _04_BookingECaseVacanza
+  Noah   progetti      (righe di Sam)                        -> _05_NuoveCostruzioniECrowdfunding
   Lia    aste          (ferma, come Tom)
 
 Il lavoro arriva da Adrian nella scheda PassaggiAlDownload del foglio _00_ZoneEQuote (Stato "da scaricare").
-Per ogni contatto scarica SOLO il minimo necessario e lo manda dritto su Drive, in una cartella col suo ID:
+Per ogni contatto scarica SOLO il minimo necessario e lo salva nel repository dei dati depthx-dati-1.2, in una cartella col suo ID:
   - scheda.txt: ID, nome, tipo, città, sito, link, email, titolo e descrizione della pagina, testo utile (max 3.000 caratteri);
   - le planimetrie trovate (immagini o PDF con planimetria, pianta, floor plan nel nome o nel testo alternativo), al massimo 4;
   - al massimo 4 foto (prima l'immagine di anteprima og:image, poi le immagini grandi della pagina).
 Legge al massimo 3 pagine per contatto (il link e fino a 2 pagine di annunci dello stesso sito), con 3 secondi di pausa.
 Mai aggirare blocchi o captcha: se il sito risponde 403 o 429 scrive "bloccato dal sito" e passa oltre.
 Scrive ogni contatto scaricato nella scheda Download e il suo stato dal vivo nella scheda StatoDownload (letta dal Centro Gestione).
-Google Sheet: una richiesta ogni 6 secondi (regola di tutta l'azienda).
+I dati sono i CSV del repository depthx-dati-1.2 (modulo _00_DatiOutboundSuGitHub/_01_LeggeEScriveICSVSuGitHub.py).
 
 Uso:  python -I _01_MotoreDelDownload.py --dipendente Kevin [--massimo 40]
 """
@@ -39,14 +39,9 @@ CARTELLA_CHIAVI = r"C:\_02_DepthXSoftware\_01_CentroGestioneDepthX\V1.0(161126_1
 STATO = {"registro": []}
 
 
-def segreto():
-    s = os.environ.get("SEGRETO_DOWNLOAD_DRIVE") or open(os.path.join(CARTELLA_CHIAVI, "_05_SegretoDownloadSuDriveUfficio1.2.txt"), encoding="utf-8").read()
-    return s.strip()
-
-
-def indirizzo_drive():
-    u = os.environ.get("INDIRIZZO_DOWNLOAD_DRIVE") or open(os.path.join(CARTELLA_CHIAVI, "_06_IndirizzoAppDownloadSuDrive.txt"), encoding="utf-8").read()
-    return u.strip()
+# La cartella di ogni fonte nel repository dei dati, _02_MaterialeScaricato
+CARTELLA_FONTE = {"agenzie": "_01_SitiDelleAgenzie", "costruttori": "_02_SitiDiCostruttoriEStudi", "portali": "_03_SubitoImmobiliareIdealista",
+                  "casevacanza": "_04_BookingECaseVacanza", "progetti": "_05_NuoveCostruzioniECrowdfunding", "aste": "_06_AsteImmobiliari"}
 
 
 def leggi(intervallo, foglio=ZQ):
@@ -126,12 +121,10 @@ def testo_utile(pagina):
 
 
 def carica(fonte, contatto, nome, contenuto, tipo):
-    r = requests.post(indirizzo_drive(), timeout=120, json={"segreto": segreto(), "fonte": fonte, "contatto": contatto, "nome": nome,
-                      "tipo": tipo, "base64": base64.b64encode(contenuto).decode()})
-    d = r.json() if r.headers.get("Content-Type", "").startswith("application/json") else {"ok": False, "errore": f"risposta {r.status_code}"}
-    if not d.get("ok"):
-        raise RuntimeError("Drive: " + str(d.get("errore")))
-    return d.get("cartella", "")
+    """Salva il file nel repository dei dati: _02_MaterialeScaricato/<cartella della fonte>/<ID>/<nome>."""
+    cartella = f"_02_MaterialeScaricato/{CARTELLA_FONTE[fonte]}/{contatto}"
+    M.D.salva_file(f"{cartella}/{nome}", contenuto)
+    return cartella
 
 
 def lavora_contatto(fonte, c):

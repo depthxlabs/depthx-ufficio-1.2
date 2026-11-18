@@ -12,12 +12,12 @@ Le chiavi arrivano dai segreti di GitHub (variabili d'ambiente) o, sul server De
 """
 import argparse, datetime, html, json, os, re, sys, time, urllib.parse
 import requests
-from google.oauth2 import service_account
-from google.auth.transport.requests import AuthorizedSession
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_00_DatiOutboundSuGitHub"))
+import importlib
+D = importlib.import_module("_01_LeggeEScriveICSVSuGitHub")   # i CSV del repository depthx-dati-1.2 al posto dei fogli Google
 
 CARTELLA_CHIAVI = r"C:\_02_DepthXSoftware\_01_CentroGestioneDepthX\V1.0(161126_1124)\_01_StrumentiDiLavoroPerIlServer\_01_ChiaviAccessiServiziTerzeParti\_02_Google"
 CHIAVE_MAPS = CARTELLA_CHIAVI + r"\_03_ChiavePlacesUfficio1.2.txt"
-CHIAVE_SHEET = CARTELLA_CHIAVI + r"\_02_ChiaveGoogleSheet.json"
 
 # I ricercatori su Maps: parole di ricerca, tipo, sigla dell'ID e foglio Google
 RICERCATORI = {
@@ -60,22 +60,12 @@ def chiave_maps():
     return m[0]
 
 
-def sessione_sheet():
-    ambiti = ["https://www.googleapis.com/auth/spreadsheets"]
-    if os.environ.get("CHIAVE_GOOGLE_SHEET"):
-        cred = service_account.Credentials.from_service_account_info(json.loads(os.environ["CHIAVE_GOOGLE_SHEET"]), scopes=ambiti)
-    else:
-        cred = service_account.Credentials.from_service_account_file(CHIAVE_SHEET, scopes=ambiti)
-    return AuthorizedSession(cred)
-
-
-SESSIONE = sessione_sheet()
+SESSIONE = D.Sessione()
 STATO, FOGLIO, ULTIMA, TURNO = {}, {"id": ""}, {"t": 0.0}, {"t": 0.0}
 REGISTRO = []  # il registro di lavoro: le ultime 60 azioni, si vede nel pannello del dipendente
 
-# Google Sheet gratuito: 60 richieste al minuto per tutto l'account di servizio.
-# Ogni dipendente fa al massimo UNA richiesta ogni 6 secondi: anche 10 dipendenti insieme restano a 60 al minuto.
-PAUSA_SHEET = 6.0
+# I dati sono file CSV: nessuna pausa tra due letture o scritture
+PAUSA_SHEET = 0.0
 
 
 def aspetta_turno():

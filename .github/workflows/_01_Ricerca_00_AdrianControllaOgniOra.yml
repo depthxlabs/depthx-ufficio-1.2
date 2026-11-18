@@ -5,17 +5,24 @@ on:
     - cron: "30 * * * *"
   workflow_dispatch:
 concurrency: controllo-ricerca
+permissions:
+  contents: read
+  checks: write
+  actions: write
+env:
+  GH_TOKEN: ${{ github.token }}
 jobs:
   controllo:
     name: Adrian controlla chi ha finito
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: depthxlabs/depthx-dati-1.2, ssh-key: "${{ secrets.CHIAVE_DATI_RICERCA }}", path: dati, sparse-checkout: _01_ListaCRM }
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install requests google-auth
+      - run: pip install requests
       - env:
-          CHIAVE_GOOGLE_SHEET: ${{ secrets.CHIAVE_GOOGLE_SHEET }}
           PYTHONIOENCODING: utf-8
           TZ: Europe/Rome
         run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_04_AdrianOrganizzaLaGiornata.py" --fase controllo
