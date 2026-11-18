@@ -68,6 +68,9 @@ const leggiIntervallo = async (foglio, intervallo) => {
 };
 const pausa = ms => new Promise(ok => setTimeout(ok, ms));
 const cache = {};
+// Ufficio Materiale social: produzione su GitHub, accesa e spenta da Michele dal pannello di Hector (18/11/2026)
+const REPO_UFFICIO = 'depthxlabs/depthx-ufficio-1.2', PRODUZIONE_SOCIAL = '_06_MaterialeSocial_00_Produzione.yml';
+const TOKEN_GITHUB = path.join(__dirname, '..', '..', '..', '_01_ChiaviAccessiServiziTerzeParti', '_10_GitHub', '_01_TokenGitHub.txt');
 // Cache "subito e poi aggiorna": se il dato c'è lo dà all'istante, e se è vecchio lo rilegge dietro le quinte.
 const inCorso = {};
 const conCache = async (chiave, ms, fare) => {
@@ -90,7 +93,9 @@ function capacitaDaiProgrammi() {
 // minuti di GitHub del mese: somma della durata di ogni lavoro, arrotondata al minuto come fa GitHub
 const { execFile } = require('child_process');
 // API pubblica di GitHub (il server gira come utente di sistema e non vede l'accesso di gh): il repository è pubblico
-const apiGitHub = url => richiesta('https://api.github.com/' + url, { headers: { 'User-Agent': 'DepthX-CentroGestione', Accept: 'application/vnd.github+json' } }).then(r => r.codice === 200 ? JSON.parse(r.testo) : {});
+// con il token di GitHub nella cartella delle chiavi le letture salgono da 60 a 5000 all'ora
+const apiGitHub = url => richiesta('https://api.github.com/' + url, { headers: { 'User-Agent': 'DepthX-CentroGestione', Accept: 'application/vnd.github+json',
+  ...(fs.existsSync(TOKEN_GITHUB) ? { Authorization: 'Bearer ' + fs.readFileSync(TOKEN_GITHUB, 'utf8').trim() } : {}) } }).then(r => r.codice === 200 ? JSON.parse(r.testo) : {});
 async function minutiGitHub() {
   const inizio = new Date(); inizio.setDate(1); const dal = inizio.toISOString().slice(0, 10);
   const giri = ((await apiGitHub(`repos/depthxlabs/depthx-ufficio-1.2/actions/runs?per_page=100&created=%3E%3D${dal}`)).workflow_runs || []).map(r => r.id);
@@ -164,6 +169,44 @@ require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerCo
     const zoneAttive = (a.zone || []).filter(z => (z[3] || '').toLowerCase() === 'sì').length;
     return { ricercatori, zoneAttive, braveRimaste: a.quote && a.quote.brave ? +a.quote.brave.valore || null : null, cicloOre: 3, risultatiMassimiPerRicercaMaps: 60, insiemeAlMassimo: 6 };
   }),
+  // GET /MaterialeSocial  ->  la produzione dell'ufficio Materiale social su GitHub: acceso o spento, ultimi giri, Nadia e Isla passo per passo
+  'GET /MaterialeSocial': async () => conCache('social', 45000, async () => {
+    const giri = ((await apiGitHub(`repos/${REPO_UFFICIO}/actions/workflows/${PRODUZIONE_SOCIAL}/runs?per_page=5`)).workflow_runs || []);
+    const ultimo = giri[0];
+    const lavori = ultimo ? ((await apiGitHub(`repos/${REPO_UFFICIO}/actions/runs/${ultimo.id}/jobs`)).jobs || []) : [];
+    // l'avanzamento che ogni produttore pubblica ogni 30 secondi nel suo controllo GitHub "Materiale social <nome>"
+    const controlli = ultimo ? ((await apiGitHub(`repos/${REPO_UFFICIO}/commits/${ultimo.head_sha}/check-runs?per_page=50`)).check_runs || []) : [];
+    const produttori = controlli.filter(c => c.name.startsWith('Materiale social ') && String(c.external_id) === String(ultimo.id))
+      .map(c => { try { return JSON.parse(c.output.summary); } catch { return null; } }).filter(Boolean);
+    return {
+      produttori,
+      acceso: !!ultimo && ['queued', 'in_progress', 'waiting', 'pending'].includes(ultimo.status),
+      token: fs.existsSync(TOKEN_GITHUB),
+      drive: 'https://drive.google.com/drive/folders/1LTHpyPu8mC1g5AQrWtQWKCj8V9pTFLpZ',
+      giri: giri.map(g => ({ id: g.id, stato: g.status, esito: g.conclusion, inizio: g.run_started_at || g.created_at, fine: g.updated_at, link: g.html_url })),
+      lavori: lavori.map(j => ({ nome: j.name, stato: j.status, esito: j.conclusion, inizio: j.started_at, fine: j.completed_at,
+        passo: ((j.steps || []).find(s => s.status === 'in_progress') || (j.steps || []).filter(s => s.status === 'completed').pop() || {}).name || '',
+        passi: (j.steps || []).map(s => ({ nome: s.name, stato: s.status, esito: s.conclusion })) })),
+    };
+  }),
+  // POST /MaterialeSocial { azione: 'accendi' | 'spegni', versione }  ->  Michele accende o spegne la produzione dal pannello di Hector
+  'POST /MaterialeSocial': async ({ datiInviati: d }) => {
+    if (!fs.existsSync(TOKEN_GITHUB)) return { ok: false, errore: 'Manca il token di GitHub nella cartella delle chiavi.' };
+    const token = fs.readFileSync(TOKEN_GITHUB, 'utf8').trim();
+    const chiama = (url, corpo) => richiesta('https://api.github.com/' + url, { method: 'POST', headers: { 'User-Agent': 'DepthX-CentroGestione', Accept: 'application/vnd.github+json', Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' } }, corpo ? JSON.stringify(corpo) : '');
+    delete cache.social;
+    if (d.azione === 'accendi') {
+      const versione = ['1', '2', '3'].includes(String(d.versione)) ? String(d.versione) : '1';
+      const r = await chiama(`repos/${REPO_UFFICIO}/actions/workflows/${PRODUZIONE_SOCIAL}/dispatches`, { ref: 'main', inputs: { versione } });
+      return r.codice === 204 ? { ok: true } : { ok: false, errore: 'GitHub ha risposto ' + r.codice };
+    }
+    if (d.azione === 'spegni') {
+      const giri = ((await apiGitHub(`repos/${REPO_UFFICIO}/actions/workflows/${PRODUZIONE_SOCIAL}/runs?per_page=10`)).workflow_runs || []).filter(g => g.status !== 'completed');
+      for (const g of giri) await chiama(`repos/${REPO_UFFICIO}/actions/runs/${g.id}/cancel`);
+      return { ok: true, fermati: giri.length };
+    }
+    return { ok: false, errore: 'Azione sconosciuta.' };
+  },
   // POST /Obiettivo { obiettivo, ricercatori, quanti, entro, zone }  ->  nuova riga attiva nella scheda Obiettivi
   'POST /Obiettivo': async ({ datiInviati: d }) => {
     const quanti = parseInt(d.quanti, 10);
@@ -192,8 +235,8 @@ require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerCo
   // GET /Skill?cartella=_01_Ricerca/_02_Anna_AgenzieDaMaps  ->  il testo delle skill del dipendente, file per file in ordine
   'GET /Skill': async ({ indirizzo }) => {
     const cartella = indirizzo.searchParams.get('cartella') || '';
-    if (!/^_\d{2}_[A-Za-z0-9]+\/_\d{2}_[A-Za-z0-9]+_[A-Za-z0-9]+$/.test(cartella)) return { esiste: false };
-    const dove = path.join(CARTELLA_SKILL, ...cartella.split('/'));
+    if (!/^_\d{2}_[A-Za-z0-9]+(_[A-Za-z0-9]+)*(\/_\d{2}_[A-Za-z0-9]+(_[A-Za-z0-9]+)*){0,2}$/.test(cartella)) return { esiste: false };
+    const dove = path.join(CARTELLA_SKILL,...cartella.split('/'));
     if (!fs.existsSync(dove)) return { esiste: false };
     const file = fs.readdirSync(dove).filter(n => n.endsWith('.md')).sort();
     return { esiste: true, file: file.map(n => ({ nome: n, testo: fs.readFileSync(path.join(dove, n), 'utf8') })) };

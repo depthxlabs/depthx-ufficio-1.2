@@ -1,7 +1,8 @@
-# Ufficio Materiale social (Ufficio 1.2 Planimetrie 3D, responsabile Freya): produzione dei video per i social.
-# Due schede Vast nello stesso momento: Nadia produce FloorView, Isla produce Unfold.
-# Ogni scheda: noleggio con la regola dei 5 minuti, libreria da Drive, provino, render con anti tremolio a 0,00%,
-# scaricamento, distruzione sempre. Poi il formato post Instagram dal verticale e il salvataggio su Drive per formato.
+# Ufficio Materiale social (Ufficio 1.2 Planimetrie 3D, responsabile Freya): produce soltanto i video e li carica su Drive.
+# Si accende e si spegne dal pannello di Hector. Due schede Vast in Europa nello stesso momento: Nadia FloorView, Isla Unfold.
+# Ogni scheda: noleggio con la regola dei 5 minuti, solo la libreria che il motore usa, provino, render con anti tremolio a 0,00%,
+# scaricamento, distruzione sempre, formato post Instagram dal verticale, salvataggio su Drive per formato.
+# L'avanzamento si pubblica ogni 30 secondi in un controllo GitHub "Materiale social <produttore>", letto dal pannello di Hector.
 name: Materiale social 00 Produzione (Freya)
 on:
   workflow_dispatch:
@@ -10,6 +11,9 @@ on:
         description: "Versione da produrre (1, 2 o 3)"
         default: "1"
 concurrency: materiale-social
+permissions:
+  contents: read
+  checks: write
 jobs:
   produzione:
     name: ${{ matrix.chi }} ${{ matrix.nome }} versione ${{ inputs.versione }}
@@ -23,16 +27,19 @@ jobs:
           - { chi: Isla, prodotto: _02_Unfold, nome: Unfold, sigla: uf }
     env:
       VERSIONE: ${{ inputs.versione }}
+      CHI: ${{ matrix.chi }}
       PRODOTTO: ${{ matrix.prodotto }}
       NOME: ${{ matrix.nome }}
       SIGLA: ${{ matrix.sigla }}
       LIBRERIA_DRIVE: 1GCGqFKfkGjIx5DwTdoR3WSjzqInUSovB
       USCITA_DRIVE: 1LTHpyPu8mC1g5AQrWtQWKCj8V9pTFLpZ
       FLAG_CHROME: "--use-angle=gl-egl --use-gl=angle --enable-gpu"
+      GH_TOKEN: ${{ github.token }}
+      EUROPA: "AT BE BG CH CZ DE DK EE ES FI FR GB GR HR HU IE IS IT LT LU LV NL NO PL PT RO SE SI SK"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Strumenti e chiavi
+      - name: Strumenti, chiavi e avanzamento
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
           VAST_API_KEY: ${{ secrets.VAST_API_KEY }}
@@ -46,31 +53,68 @@ jobs:
           printf '%s\n' "$SSH_PRIVATA_VAST" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
           vastai set api-key "$VAST_API_KEY" > /dev/null
           echo "CREDITO_PRIMA=$(vastai show user --raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["credit"])')" >> $GITHUB_ENV
+          # avanzamento: /tmp/av.json, pubblicato nel controllo GitHub del produttore
+          cat > /tmp/avanza.py <<'PY'
+          import json, os, subprocess, sys, time
+          F = "/tmp/av.json"
+          a = json.load(open(F)) if os.path.exists(F) else {"chi": os.environ["CHI"], "prodotto": os.environ["NOME"], "versione": os.environ["VERSIONE"], "fase": "", "scheda": {}, "video": {}, "render": {}, "salvati": 0}
+          for arg in sys.argv[1:]:
+              k, v = arg.split("=", 1)
+              if k == "render" and os.path.exists(v):
+                  try: a["render"] = json.load(open(v))
+                  except Exception: pass
+              elif k.startswith("video."): a["video"][k[6:]] = v
+              elif k.startswith("scheda."): a["scheda"][k[7:]] = v
+              else: a[k] = v
+          a["aggiornato"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          json.dump(a, open(F, "w"))
+          repo, cid = os.environ["GITHUB_REPOSITORY"], os.environ.get("CHECK_ID")
+          corpo = json.dumps({"output": {"title": a["fase"] or "avvio", "summary": json.dumps(a, ensure_ascii=False)}})
+          if cid: subprocess.run(["gh", "api", "-X", "PATCH", f"repos/{repo}/check-runs/{cid}", "--input", "-"], input=corpo.encode(), capture_output=True)
+          PY
+          CID=$(gh api -X POST "repos/$GITHUB_REPOSITORY/check-runs" -f name="Materiale social $CHI" -f head_sha="$GITHUB_SHA" -f status=in_progress -f external_id="$GITHUB_RUN_ID" --jq .id)
+          echo "CHECK_ID=$CID" >> $GITHUB_ENV
+          CHECK_ID=$CID python3 /tmp/avanza.py fase="Preparazione"
 
-      - name: Pacco e coda
+      - name: Pacco, coda e libreria necessaria
         run: |
           mkdir -p lavoro
           cp -r _06_MaterialeSocial/_01_MotoreProduzione lavoro/_00_Motore
           cp -r "_06_MaterialeSocial/_02_Case/$PRODOTTO" lavoro/
+          V=""
           for d in lavoro/$PRODOTTO/*/; do
             c=$(basename "$d")
             for f in orizzontale verticale; do
-              o=${f:0:1}
-              echo "${SIGLA}${c:1:2}${o}|$PRODOTTO/$c/codice/index.html?o=$o|$f|$PRODOTTO/$c/DepthX_${NOME}${VERSIONE}${c}_${f}_60fps.mp4"
+              o=${f:0:1}; id="${SIGLA}${c:1:2}${o}"
+              echo "$id|$PRODOTTO/$c/codice/index.html?o=$o|$f|$PRODOTTO/$c/DepthX_${NOME}${VERSIONE}${c}_${f}_60fps.mp4"
+              V="$V video.$id=in_coda"
             done
           done > coda_tutta.txt
-          cat coda_tutta.txt
+          python3 - <<'PY'
+          import re
+          t = open("lavoro/_00_Motore/motore/libreria.js", encoding="utf-8").read()
+          mod = re.search(r"MODELLI = \{(.*?)\n\};", t, re.S).group(1); mat = re.search(r"MATERIALI = \{(.*?)\n\};", t, re.S).group(1)
+          righe = sorted({f"+ modelli/{m}/**" for m in re.findall(r"\['([A-Za-z0-9_]+)', -?\d+\]", mod)})
+          righe += sorted({f"+ materiali/{m}/{m}_1K-JPG_*.jpg" for m in re.findall(r"\['([A-Za-z0-9_]+)', [\d.]+\]", mat)})
+          open("filtro_libreria.txt", "w").write("\n".join(righe + ["- **"]) + "\n")
+          print(len(righe), "voci della libreria")
+          PY
           tar -C lavoro -czf pacco.tgz _00_Motore "$PRODOTTO"
+          python3 /tmp/avanza.py fase="Noleggio della scheda" $(for l in $(cut -d'|' -f1 coda_tutta.txt); do printf 'video.%s=in_coda ' "$l"; done)
 
-      - name: Noleggio, regola dei 5 minuti
-        id: scheda
+      - name: Noleggio in Europa, regola dei 5 minuti
         run: |
           for prova in 1 2 3; do
-            ID=$(vastai search offers 'gpu_name=RTX_4090 num_gpus=1 reliability>0.98 cpu_cores_effective>=16 inet_down>300 disk_space>=60 direct_port_count>=1 rentable=true' -o 'dph+' --raw | python3 -c "import json,sys; o=json.load(sys.stdin); print(o[$prova-1]['id'] if len(o)>=$prova else '')")
+            vastai search offers 'gpu_name=RTX_4090 num_gpus=1 reliability>0.98 cpu_cores_effective>=16 inet_down>300 disk_space>=60 direct_port_count>=1 rentable=true' -o 'dph+' --raw > offerte.json
+            read ID PAESE GPU PREZZO <<< $(python3 -c "
+          import json,os
+          eu=os.environ['EUROPA'].split(); o=[x for x in json.load(open('offerte.json')) if str(x.get('geolocation','')).split(',')[-1].strip() in eu]
+          x=o[$prova-1] if len(o)>=$prova else None
+          print(x['id'], str(x.get('geolocation','')).replace(' ','_'), x.get('gpu_name','').replace(' ','_'), round(x.get('dph_total',0),3)) if x else print('')")
             [ -z "$ID" ] && continue
             I=$(vastai create instance "$ID" --image nvidia/cuda:12.4.1-runtime-ubuntu22.04 --env '-e NVIDIA_DRIVER_CAPABILITIES=all' --disk 60 --ssh --direct --raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["new_contract"])')
-            echo "istanza=$I" >> $GITHUB_OUTPUT
             echo "ISTANZA=$I" >> $GITHUB_ENV
+            python3 /tmp/avanza.py fase="Noleggio della scheda, tentativo $prova" scheda.id="$I" scheda.paese="$PAESE" scheda.gpu="$GPU" scheda.prezzo_ora="$PREZZO" scheda.noleggio="$(date -u +%FT%TZ)" scheda.stato="avvio"
             for t in $(seq 1 30); do
               sleep 10
               U=$(vastai ssh-url "$I" 2>/dev/null || true)
@@ -78,35 +122,57 @@ jobs:
               A=${U#ssh://}; H=${A%:*}; P=${A##*:}
               if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=8 -p "$P" "$H" true 2>/dev/null; then
                 echo "SSH_HOST=$H" >> $GITHUB_ENV; echo "SSH_PORTA=$P" >> $GITHUB_ENV
-                echo "Scheda $I pronta dopo $((t*10)) secondi"; exit 0
+                python3 /tmp/avanza.py fase="Scheda pronta" scheda.stato="accesa" scheda.pronta_dopo_s="$((t*10))"
+                exit 0
               fi
             done
-            echo "Scheda $I non pronta in 5 minuti: distrutta"
             vastai destroy instance "$I" -y
+            python3 /tmp/avanza.py scheda.stato="distrutta: non pronta in 5 minuti"
           done
-          echo "NOTGO: nessuna scheda pronta in 3 tentativi"; exit 1
+          python3 /tmp/avanza.py fase="NOTGO: nessuna scheda pronta in 3 tentativi"; exit 1
 
       - name: Lavoro sulla scheda
         run: |
           S="ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -p $SSH_PORTA $SSH_HOST"
-          scp -o StrictHostKeyChecking=no -P "$SSH_PORTA" pacco.tgz coda_tutta.txt ~/.config/rclone/rclone.conf "$SSH_HOST:/root/"
+          C="scp -o StrictHostKeyChecking=no -P $SSH_PORTA"
+          python3 /tmp/avanza.py fase="Caricamento e libreria necessaria"
+          $C pacco.tgz coda_tutta.txt filtro_libreria.txt ~/.config/rclone/rclone.conf "$SSH_HOST:/root/"
           $S "set -e; mkdir -p /root/lavoro; tar -xzf /root/pacco.tgz -C /root/lavoro
             curl -fsSL https://rclone.org/install.sh | bash > /dev/null
-            rclone --config /root/rclone.conf copy gdrive:_02_Librerie3D /root/lavoro/_00_Motore/assets/libreria --drive-root-folder-id $LIBRERIA_DRIVE --transfers 16
-            rm -f /root/rclone.conf
-            cd /root/lavoro/_00_Motore/strumenti && bash vast_prepara.sh"
-          $S "cd /root/lavoro/_00_Motore/strumenti; export FLAG_CHROME='$FLAG_CHROME'; : > coda_vast.txt
-            while IFS='|' read -r id pagina modo video; do
-              [ \"\$modo\" = orizzontale ] || { grep -q \"^\${id%?}o|\" ok.txt 2>/dev/null && echo \"\$id|\$pagina|\$modo|\$video\" >> coda_vast.txt; continue; }
-              r=\$(timeout 300 node provino.js /root/lavoro \"\$pagina\" /root/provini/\$id 2,6,10 orizzontale 2>&1 | grep -E 'arredo|ERRORE' | tail -1)
-              echo \"provino \$id: \$r\"
-              echo \"\$r\" | grep -q 'arredo 0 problemi | camera 0 problemi' && { echo \"\$id|\$pagina|\$modo|\$video\" >> ok.txt; echo \"\$id|\$pagina|\$modo|\$video\" >> coda_vast.txt; }
-            done < /root/coda_tutta.txt
-            echo 'In coda:'; cat coda_vast.txt
-            [ -s coda_vast.txt ] && timeout 5400 node vast_rendi.js /root/lavoro coda_vast.txt 12 400 || echo 'NOTGO: nessuna casa ha passato il provino'"
+            rclone --config /root/rclone.conf copy gdrive:_02_Librerie3D /root/lavoro/_00_Motore/assets/libreria --drive-root-folder-id $LIBRERIA_DRIVE --filter-from /root/filtro_libreria.txt --transfers 16
+            rm -f /root/rclone.conf"
+          python3 /tmp/avanza.py fase="Preparazione della scheda"
+          $S "cd /root/lavoro/_00_Motore/strumenti && bash vast_prepara.sh"
+          : > coda_ok.txt
+          while IFS='|' read -r id pagina modo video; do
+            if [ "$modo" = verticale ]; then
+              grep -q "^${id%?}o|" coda_ok.txt && { echo "$id|$pagina|$modo|$video" >> coda_ok.txt; python3 /tmp/avanza.py video.$id=provino_ok; } || python3 /tmp/avanza.py video.$id=NOTGO_provino
+              continue
+            fi
+            python3 /tmp/avanza.py fase="Provino $id" video.$id=provino
+            r=$($S "cd /root/lavoro/_00_Motore/strumenti; FLAG_CHROME='$FLAG_CHROME' timeout 300 node provino.js /root/lavoro '$pagina' /root/provini/$id 2,6,10 orizzontale 2>&1 | grep -E 'arredo|ERRORE' | tail -1")
+            echo "provino $id: $r"
+            if echo "$r" | grep -q 'arredo 0 problemi | camera 0 problemi'; then echo "$id|$pagina|$modo|$video" >> coda_ok.txt; python3 /tmp/avanza.py video.$id=provino_ok
+            else python3 /tmp/avanza.py "video.$id=NOTGO_provino: $r"; fi
+          done < coda_tutta.txt
+          if [ ! -s coda_ok.txt ]; then python3 /tmp/avanza.py fase="NOTGO: nessuna casa ha passato il provino"; exit 0; fi
+          $C coda_ok.txt "$SSH_HOST:/root/lavoro/_00_Motore/strumenti/coda_vast.txt"
+          $S "cd /root/lavoro/_00_Motore/strumenti; FLAG_CHROME='$FLAG_CHROME' nohup node vast_rendi.js /root/lavoro coda_vast.txt 12 400 > rendi.out 2>&1 &"
+          python3 /tmp/avanza.py fase="Render"
+          for t in $(seq 1 180); do
+            sleep 30
+            $C "$SSH_HOST:/root/lavoro/_00_Motore/strumenti/stato.json" /tmp/render.json 2>/dev/null || true
+            for id in $(cut -d'|' -f1 coda_ok.txt); do
+              $S "grep -q '$id: NOTGO' /root/lavoro/_00_Motore/strumenti/vast_rendi.log 2>/dev/null" && python3 /tmp/avanza.py video.$id=NOTGO_tremolio
+            done
+            python3 /tmp/avanza.py render=/tmp/render.json fase="Render" scheda.minuti_accesa="$(( ( $(date +%s) - $(date -d "$(python3 -c "import json; print(json.load(open('/tmp/av.json'))['scheda']['noleggio'])")" +%s) ) / 60 ))"
+            $S "pgrep -f vast_rendi.js > /dev/null" || break
+          done
+          python3 /tmp/avanza.py fase="Scaricamento dei video"
           mkdir -p uscita
-          scp -o StrictHostKeyChecking=no -P "$SSH_PORTA" "$SSH_HOST:/root/lavoro/$PRODOTTO/*/*.mp4" uscita/ || echo "nessun video scaricato"
-          scp -o StrictHostKeyChecking=no -P "$SSH_PORTA" "$SSH_HOST:/root/lavoro/_00_Motore/strumenti/vast_rendi.log" uscita/ || true
+          $C "$SSH_HOST:/root/lavoro/$PRODOTTO/*/*.mp4" uscita/ || echo "nessun video scaricato"
+          $C "$SSH_HOST:/root/lavoro/_00_Motore/strumenti/vast_rendi.log" uscita/ || true
+          for v in uscita/*.mp4; do [ -e "$v" ] || continue; id=$(grep -F "$(basename "$v")" coda_ok.txt | cut -d'|' -f1); [ -n "$id" ] && python3 /tmp/avanza.py video.$id=prodotto; done
           ls -la uscita
 
       - name: Distruzione della scheda, sempre
@@ -114,11 +180,13 @@ jobs:
         run: |
           vastai destroy instance "$ISTANZA" -y || true
           sleep 15
-          vastai show instances --raw | python3 -c "import json,sys,os; a=[x for x in json.load(sys.stdin) if str(x['id'])==os.environ['ISTANZA']]; print('Macchine accese:', len(a))"
+          N=$(vastai show instances --raw | python3 -c "import json,sys,os; print(len([x for x in json.load(sys.stdin) if str(x['id'])==os.environ['ISTANZA']]))")
+          python3 /tmp/avanza.py scheda.stato="distrutta" scheda.macchine_accese="$N"
 
       - name: Post Instagram e salvataggio su Drive
         if: always()
         run: |
+          python3 /tmp/avanza.py fase="Salvataggio su Drive"
           mkdir -p drive/_01_VideoVerticali drive/_02_VideoOrizzontali drive/_03_VideoFormatoPostInstagram
           for v in uscita/*_verticale_60fps.mp4; do
             [ -e "$v" ] || continue
@@ -127,7 +195,10 @@ jobs:
           done
           for v in uscita/*_orizzontale_60fps.mp4; do [ -e "$v" ] && cp "$v" drive/_02_VideoOrizzontali/; done
           rclone copy drive "gdrive:" --drive-root-folder-id "$USCITA_DRIVE" --ignore-existing
-          CREDITO_DOPO=$(vastai show user --raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["credit"])')
           N=$(find drive -name '*.mp4' | wc -l)
+          CREDITO_DOPO=$(vastai show user --raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["credit"])')
+          SPESA=$(python3 -c "print(round($CREDITO_PRIMA-$CREDITO_DOPO,3))")
+          python3 /tmp/avanza.py fase="Finito" salvati="$N" spesa="$SPESA"
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/check-runs/$CHECK_ID" -f status=completed -f conclusion=$([ "$N" -gt 0 ] && echo success || echo failure) > /dev/null || true
           echo "## $NOME versione $VERSIONE" >> $GITHUB_STEP_SUMMARY
-          echo "Video salvati su Drive: $N su 18. Spesa: $(python3 -c "print(round($CREDITO_PRIMA-$CREDITO_DOPO,3))") $" >> $GITHUB_STEP_SUMMARY
+          echo "Video salvati su Drive: $N su 18. Spesa letta dal credito Vast: $SPESA \$" >> $GITHUB_STEP_SUMMARY
