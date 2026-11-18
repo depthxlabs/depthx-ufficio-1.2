@@ -75,6 +75,28 @@ def segmenti(maschera, orizzontale, minimo):
     return out
 
 
+def coppie(segs, lato):
+    """Due linee parallele vicine (muro disegnato con il doppio tratto) diventano un muro solo, con lo spessore tra le due."""
+    usati, out = set(), []
+    for i, a in enumerate(segs):
+        if i in usati:
+            continue
+        oa = a[1] == a[3]
+        for j in range(i + 1, len(segs)):
+            b = segs[j]
+            if j in usati or (b[1] == b[3]) != oa:
+                continue
+            fa, fb = (a[1], b[1]) if oa else (a[0], b[0])
+            a0, a1, b0, b1 = (a[0], a[2], b[0], b[2]) if oa else (a[1], a[3], b[1], b[3])
+            sovr = min(a1, b1) - max(a0, b0)
+            if 0 < abs(fa - fb) <= lato * 1.2 and sovr > 0.5 * min(a1 - a0, b1 - b0):
+                f, s0, s1, sp = (fa + fb) / 2, min(a0, b0), max(a1, b1), abs(fa - fb) + max(a[4], b[4])
+                a = [s0, f, s1, f, sp] if oa else [f, s0, f, s1, sp]
+                usati.add(j)
+        out.append(a)
+    return out
+
+
 def muri_e_aperture(img, scritte):
     g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     nero = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
@@ -89,22 +111,18 @@ def muri_e_aperture(img, scritte):
         return [], 0, (0, 0, W, H)
     spessori = np.array([s[4] for s in tutti])
     sottile = max(1.0, float(np.percentile(spessori, 30)))
-    # muri: almeno il doppio delle linee sottili (le linee sottili sono confini, arredi, quote)
-    muri = [s for s in tutti if s[4] >= 2 * sottile] or [s for s in tutti if s[4] >= np.median(spessori)]
-    # la casa è il gruppo di muri con più muri interni: il confine della proprietà è un contorno vuoto
+    # la casa è il gruppo più fitto di linee dritte: il confine della proprietà ha poche linee lunghe e lontane
     m = np.zeros((H, W), np.uint8)
-    for s in muri:
+    for s in tutti:
         cv2.line(m, (int(s[0]), int(s[1])), (int(s[2]), int(s[3])), 255, max(2, int(s[4])))
     m = cv2.dilate(m, np.ones((lato, lato), np.uint8))
-    n, lab, st, _ = cv2.connectedComponentsWithStats(m)
-    migliore, punti, scelti = None, (-1, -1), []
-    for i in range(1, n):
-        x, y, l, a, _ = st[i]
-        dentro = [s for s in muri if lab[int((s[1] + s[3]) / 2), int((s[0] + s[2]) / 2)] == i]
-        interni = sum(1 for s in dentro if min(abs(s[1] - y), abs(s[1] - y - a)) > lato and min(abs(s[0] - x), abs(s[0] - x - l)) > lato)
-        if (interni, len(dentro)) > punti:
-            migliore, punti, scelti = i, (interni, len(dentro)), dentro
-    muri = scelti or muri
+    n, lab, _, _ = cv2.connectedComponentsWithStats(m)
+    gruppi = {}
+    for s in tutti:
+        gruppi.setdefault(lab[int((s[1] + s[3]) / 2), int((s[0] + s[2]) / 2)], []).append(s)
+    gruppi.pop(0, None)
+    muri = max(gruppi.values(), key=len) if gruppi else tutti
+    muri = coppie(muri, lato)
     xs = [v for s in muri for v in (s[0], s[2])]; ys = [v for s in muri for v in (s[1], s[3])]
     riquadro = (min(xs), min(ys), max(xs), max(ys))
     return muri, sottile, riquadro
@@ -127,12 +145,13 @@ def unisci(muri, toll):
     return linee
 
 
-def stanze_chiuse(img_forma, muri, riquadro):
+def stanze_chiuse(img_forma, muri, riquadro, porta_px=5):
     H, W = img_forma
     m = np.zeros((H, W), np.uint8)
     for s in muri:
         cv2.line(m, (int(s[0]), int(s[1])), (int(s[2]), int(s[3])), 255, max(2, int(s[4])))
-    m = cv2.dilate(m, np.ones((5, 5), np.uint8))  # chiude i vuoti delle porte
+    k = max(5, int(porta_px * 0.6))
+    m = cv2.dilate(m, np.ones((k, k), np.uint8))  # chiude i vuoti delle porte
     libero = cv2.bitwise_not(m)
     n, lab, st, cen = cv2.connectedComponentsWithStats(libero)
     x0, y0, x1, y1 = riquadro
@@ -168,7 +187,16 @@ def leggi_planimetria(percorso, scheda):
         return {"stato": "non è una planimetria", "note": f"muri trovati: {len(muri)}", "immagine": [W, H]}
     toll = max(4.0, sottile * 2)
     linee = unisci(muri, toll)
-    stanze = stanze_chiuse((H, W), muri, riquadro)
+    # perimetro chiuso: il lato della casa senza un muro lungo almeno metà lato prende un muro sul bordo
+    x0r, y0r, x1r, y1r = riquadro
+    for oriz, fisso, a_, b_ in ((True, y0r, x0r, x1r), (True, y1r, x0r, x1r), (False, x0r, y0r, y1r), (False, x1r, y0r, y1r)):
+        coperto = sum(L["b"] - L["a"] for L in linee if L["oriz"] == oriz and abs(L["fisso"] - fisso) <= toll * 2)
+        if coperto < 0.5 * (b_ - a_):
+            linee.append({"oriz": oriz, "fisso": fisso, "a": a_, "b": b_, "t": max(4.0, sottile * 3), "vuoti": []})
+            muri.append([a_, fisso, b_, fisso, max(4.0, sottile * 3)] if oriz else [fisso, a_, fisso, b_, max(4.0, sottile * 3)])
+    interni = [v[1] - v[0] for L in linee if not (abs(L["fisso"] - (y0r if L["oriz"] else x0r)) <= toll * 2 or abs(L["fisso"] - (y1r if L["oriz"] else x1r)) <= toll * 2) for v in L["vuoti"]]
+    porta_px = float(np.median(interni)) if interni else 0.0
+    stanze = stanze_chiuse((H, W), muri, riquadro, porta_px)
     # nomi e metri quadri dalle scritte, assegnati alla stanza che le contiene
     for s in scritte:
         cx, cy = s["x"] + s["l"] / 2, s["y"] + s["a"] / 2
@@ -184,21 +212,18 @@ def leggi_planimetria(percorso, scheda):
         mq = RE_MQ.search(testo)
         st["mq_letti"] = float(mq.group(1).replace(",", ".")) if mq else None
         piene.append(st)
-    # scala: metri per pixel
-    scala, fonte_scala = None, "assente"
+    # scala: metri per pixel, la prima fonte che dà una casa credibile (lato lungo tra 4 e 35 m)
+    lato_px = max(riquadro[2] - riquadro[0], riquadro[3] - riquadro[1])
+    candidati = []
     stime = [(st["mq_letti"] / st["px"]) ** 0.5 for st in piene if st["mq_letti"] and st["px"] > 0]
     if stime:
-        scala, fonte_scala = float(np.median(stime)), "metri quadri scritti nelle stanze"
-    else:
-        sup = superficie_annuncio(scheda)
-        px_interni = sum(st["px"] for st in piene)
-        if sup and px_interni:
-            scala, fonte_scala = (sup / px_interni) ** 0.5, "superficie dell'annuncio"
-    vuoti = [v[1] - v[0] for L in linee for v in L["vuoti"]]
-    if not scala and vuoti:
-        scala, fonte_scala = 0.80 / float(np.median(vuoti)), "porta di 0,80 m"
-    if not scala:
-        scala, fonte_scala = 10.0 / (riquadro[2] - riquadro[0]), "nessuna: larghezza ipotetica di 10 m"
+        candidati.append((float(np.median(stime)), "metri quadri scritti nelle stanze"))
+    sup, px_interni = superficie_annuncio(scheda), sum(st["px"] for st in piene)
+    if sup and px_interni:
+        candidati.append(((sup / px_interni) ** 0.5, "superficie dell'annuncio"))
+    if porta_px:
+        candidati.append((0.80 / porta_px, "porta interna di 0,80 m"))
+    scala, fonte_scala = next(((s, f) for s, f in candidati if 4 <= s * lato_px <= 35), (12.0 / lato_px, "nessuna credibile: lato lungo ipotetico di 12 m"))
     x0, y0 = riquadro[0], riquadro[1]
     m = lambda v: round(float(v) * scala, 2)
     perimetro = lambda L: abs(L["fisso"] - (riquadro[1] if L["oriz"] else riquadro[0])) <= toll * 2 or abs(L["fisso"] - (riquadro[3] if L["oriz"] else riquadro[2])) <= toll * 2
