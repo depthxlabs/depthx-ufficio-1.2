@@ -4,7 +4,7 @@ Ogni membro della squadra di Mike lavora una sola fonte:
   Kevin  agenzie       (righe di Anna, Max, Brian, Mia)      -> Drive _01_SitiDelleAgenzie
   Rosa   costruttori   (righe di Liam, Mark, Elen, Leo)      -> Drive _02_SitiDiCostruttoriEStudi
   Sara   portali       (righe di Nora)                       -> Drive _03_SubitoImmobiliareIdealista
-  Paul   casevacanza   (righe di Kera)                       -> Drive _04_BookingECaseVacanza
+  Paul   casevacanza   (righe di Kera ed Ester)                     -> Drive _04_BookingECaseVacanza
   Noah   progetti      (righe di Sam)                        -> Drive _05_NuoveCostruzioniECrowdfunding
   Lia    aste          (ferma, come Tom)
 

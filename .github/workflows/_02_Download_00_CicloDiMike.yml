@@ -1,7 +1,12 @@
-# Il ciclo del Download (Ufficio 1.2 Planimetrie 3D, capo area Mike): ogni ora, 15 minuti dopo il controllo di Adrian,
+# Il ciclo del Download (Ufficio 1.2 Planimetrie 3D, capo area Mike): parte da solo dopo ogni giro e ogni controllo di Adrian,
 # ogni membro della squadra prende i passaggi "da scaricare" della sua fonte, scarica il minimo necessario e lo carica su Drive.
 name: Download 00 Ciclo di Mike ogni ora
 on:
+  # parte da solo appena finisce un giro o un controllo di Adrian: se c'è materiale da scaricare lavora, se no esce subito
+  workflow_run:
+    workflows: ["Ricerca 00 Ciclo della Ricerca ogni 10 minuti (Adrian)", "Ricerca 00 Adrian controlla ogni ora"]
+    types: [completed]
+  # riserva, se GitHub salta qualcosa
   schedule:
     - cron: "45 * * * *"
   workflow_dispatch:

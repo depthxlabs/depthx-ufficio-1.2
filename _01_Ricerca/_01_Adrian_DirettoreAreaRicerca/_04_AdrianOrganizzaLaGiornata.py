@@ -25,7 +25,7 @@ MOTORI = {n: (["maps"] if n in M.RICERCATORI else []) + (["brave"] if n in B.RIC
 # La fonte di ogni ricercatore, cioè la cartella del Download su Drive dove finirà il suo materiale
 FONTE = {"Anna": "agenzie", "Max": "agenzie", "Brian": "agenzie", "Mia": "agenzie",
          "Liam": "costruttori", "Mark": "costruttori", "Elen": "costruttori", "Leo": "costruttori",
-         "Nora": "portali", "Kera": "casevacanza", "Sam": "progetti", "Tom": "aste"}
+         "Nora": "portali", "Kera": "casevacanza", "Ester": "casevacanza", "Sam": "progetti", "Tom": "aste"}
 ORA = lambda: datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 # Assegnazioni: Data e ora | Ricercatore | Città | Provincia | Quota | Assegnata da | Esito | Righe prima | Obiettivo
 # Passaggi al Download: Data e ora | Da | A | Ricercatore | Fonte | Foglio | Prima riga | Ultima riga | Quanti | Stato | Note
