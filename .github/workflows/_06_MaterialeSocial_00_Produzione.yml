@@ -149,7 +149,7 @@ jobs:
           python3 /tmp/avanza.py fase="Preparazione della scheda"
           $S "cd /root/lavoro/_00_Motore/strumenti && bash vast_prepara.sh"
           : > coda_ok.txt
-          while IFS='|' read -r id pagina modo video; do
+          while IFS='|' read -r id pagina modo video <&3; do
             if [ "$modo" != orizzontale ]; then
               grep -q "^${id%?}o|" coda_ok.txt && { echo "$id|$pagina|$modo|$video" >> coda_ok.txt; python3 /tmp/avanza.py video.$id=provino_ok; } || python3 /tmp/avanza.py video.$id=NOTGO_provino
               continue
@@ -159,7 +159,7 @@ jobs:
             echo "provino $id: $r"
             if echo "$r" | grep -q 'arredo 0 problemi | camera 0 problemi'; then echo "$id|$pagina|$modo|$video" >> coda_ok.txt; python3 /tmp/avanza.py video.$id=provino_ok
             else python3 /tmp/avanza.py "video.$id=NOTGO_provino: $r"; fi
-          done < coda_tutta.txt
+          done 3< coda_tutta.txt
           if [ ! -s coda_ok.txt ]; then python3 /tmp/avanza.py fase="NOTGO: nessuna casa ha passato il provino"; exit 0; fi
           $C coda_ok.txt "$SSH_HOST:/root/lavoro/_00_Motore/strumenti/coda_vast.txt"
           $S "cd /root/lavoro/_00_Motore/strumenti; FLAG_CHROME='$FLAG_CHROME' nohup node vast_rendi.js /root/lavoro coda_vast.txt 12 400 > rendi.out 2>&1 &"
