@@ -22,8 +22,13 @@ ZONE_E_QUOTE = "1Sr9qOixgP9_snFesfBHcBoVSBxW8YKCAIJvPLHmGRIA"
 URL = f"https://sheets.googleapis.com/v4/spreadsheets/{ZONE_E_QUOTE}/values"
 FOGLI = {**{n: c["foglio"] for n, c in M.RICERCATORI.items()}, **{n: c["foglio"] for n, c in B.RICERCATORI.items()}}
 MOTORI = {n: (["maps"] if n in M.RICERCATORI else []) + (["brave"] if n in B.RICERCATORI else []) for n in FOGLI}
+# La fonte di ogni ricercatore, cioè la cartella del Download su Drive dove finirà il suo materiale
+FONTE = {"Anna": "agenzie", "Max": "agenzie", "Brian": "agenzie", "Mia": "agenzie",
+         "Liam": "costruttori", "Mark": "costruttori", "Elen": "costruttori", "Leo": "costruttori",
+         "Nora": "portali", "Kera": "casevacanza", "Sam": "progetti", "Tom": "aste"}
 ORA = lambda: datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 # Assegnazioni: Data e ora | Ricercatore | Città | Provincia | Quota | Assegnata da | Esito | Righe prima | Obiettivo
+# Passaggi al Download: Data e ora | Da | A | Ricercatore | Fonte | Foglio | Prima riga | Ultima riga | Quanti | Stato | Note
 # Obiettivi:    Obiettivo | Ricercatori | Contatti da raggiungere | Dal | Entro | Zone | Raggiunti | Stato
 
 
@@ -106,6 +111,12 @@ def controllo():
             prima = int(a[7]) if str(a[7]).isdigit() else None
             scritte = righe_del_foglio(a[1]) - prima if prima is not None else None
             esito = f"fatto: {scritte} righe scritte" if scritte is not None else f"fatto: {stato.get('esito', '')}"
+            if scritte:
+                # Adrian passa a Bianca (Download) le righe nuove: riga 1 è l'intestazione, quindi i dati partono dalla 2
+                M.con_riprova(lambda: M.SESSIONE.post(f"{URL}/PassaggiAlDownload!A1:append", params={"valueInputOption": "USER_ENTERED",
+                              "insertDataOption": "INSERT_ROWS"}, json={"values": [[ORA(), "Adrian", "Bianca", a[1], FONTE.get(a[1], ""),
+                              f"https://docs.google.com/spreadsheets/d/{FOGLI[a[1]]}/edit", prima + 2, prima + 1 + scritte, scritte,
+                              "da scaricare", f"{a[2]}, obiettivo: {a[8]}"]]}))
         else:
             esito = "non ha lavorato"
         scrivi(f"Assegnazioni!G{i}", [[esito]])
