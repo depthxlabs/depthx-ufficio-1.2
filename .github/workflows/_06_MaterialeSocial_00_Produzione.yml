@@ -57,7 +57,7 @@ jobs:
           cat > /tmp/avanza.py <<'PY'
           import json, os, subprocess, sys, time
           F = "/tmp/av.json"
-          a = json.load(open(F)) if os.path.exists(F) else {"chi": os.environ["CHI"], "prodotto": os.environ["NOME"], "versione": os.environ["VERSIONE"], "fase": "", "scheda": {}, "video": {}, "render": {}, "salvati": 0}
+          a = json.load(open(F)) if os.path.exists(F) else {"chi": os.environ["CHI"], "prodotto": os.environ["NOME"], "versione": os.environ["VERSIONE"], "fase": "", "scheda": {}, "video": {}, "render": {}, "salvati": 0, "inizio": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
           for arg in sys.argv[1:]:
               k, v = arg.split("=", 1)
               if k == "render" and os.path.exists(v):
@@ -67,6 +67,7 @@ jobs:
               elif k.startswith("scheda."): a["scheda"][k[7:]] = v
               else:
                   if k == "fase" and v != a.get("fase"): a["fase_inizio"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                  if k == "fase" and v.startswith("Provino") and "provini_inizio" not in a: a["provini_inizio"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                   a[k] = v
           a["aggiornato"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
           json.dump(a, open(F, "w"))
