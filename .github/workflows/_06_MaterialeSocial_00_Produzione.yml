@@ -7,16 +7,16 @@ name: Materiale social 00 Produzione (Freya)
 on:
   workflow_dispatch:
     inputs:
-      versione:
-        description: "Versione da produrre (1, 2 o 3)"
-        default: "1"
+      versioni:
+        description: "Versioni da produrre, separate da spazi"
+        default: "1 2 3"
 concurrency: materiale-social
 permissions:
   contents: read
   checks: write
 jobs:
   produzione:
-    name: ${{ matrix.chi }} ${{ matrix.nome }} versione ${{ inputs.versione }}
+    name: ${{ matrix.chi }} ${{ matrix.nome }} versioni ${{ inputs.versioni }}
     runs-on: ubuntu-latest
     timeout-minutes: 150
     strategy:
@@ -26,7 +26,7 @@ jobs:
           - { chi: Nadia, prodotto: _01_FloorView, nome: FloorView, sigla: fv }
           - { chi: Isla, prodotto: _02_Unfold, nome: Unfold, sigla: uf }
     env:
-      VERSIONE: ${{ inputs.versione }}
+      VERSIONE: ${{ inputs.versioni }}
       CHI: ${{ matrix.chi }}
       PRODOTTO: ${{ matrix.prodotto }}
       NOME: ${{ matrix.nome }}
@@ -84,12 +84,13 @@ jobs:
           cp -r _06_MaterialeSocial/_01_MotoreProduzione lavoro/_00_Motore
           cp -r "_06_MaterialeSocial/_02_Case/$PRODOTTO" lavoro/
           V=""
-          for d in lavoro/$PRODOTTO/*/; do
-            c=$(basename "$d")
-            for f in orizzontale verticale; do
-              o=${f:0:1}; id="${SIGLA}${c:1:2}${o}"
-              echo "$id|$PRODOTTO/$c/codice/index.html?o=$o|$f|$PRODOTTO/$c/DepthX_${NOME}${VERSIONE}${c}_${f}_60fps.mp4"
-              V="$V video.$id=in_coda"
+          for ver in $VERSIONE; do
+            for d in lavoro/$PRODOTTO/*/; do
+              c=$(basename "$d")
+              for f in orizzontale verticale post; do
+                o=${f:0:1}; id="${SIGLA}${c:1:2}${ver}${o}"
+                echo "$id|$PRODOTTO/$c/codice/index.html?o=$o&ver=$ver|$f|$PRODOTTO/$c/DepthX_${NOME}${ver}${c}_${f}_60fps.mp4"
+              done
             done
           done > coda_tutta.txt
           python3 - <<'PY'
@@ -148,7 +149,7 @@ jobs:
           $S "cd /root/lavoro/_00_Motore/strumenti && bash vast_prepara.sh"
           : > coda_ok.txt
           while IFS='|' read -r id pagina modo video; do
-            if [ "$modo" = verticale ]; then
+            if [ "$modo" != orizzontale ]; then
               grep -q "^${id%?}o|" coda_ok.txt && { echo "$id|$pagina|$modo|$video" >> coda_ok.txt; python3 /tmp/avanza.py video.$id=provino_ok; } || python3 /tmp/avanza.py video.$id=NOTGO_provino
               continue
             fi
@@ -191,17 +192,14 @@ jobs:
         run: |
           python3 /tmp/avanza.py fase="Salvataggio su Drive"
           mkdir -p drive/_01_VideoVerticali drive/_02_VideoOrizzontali drive/_03_VideoFormatoPostInstagram
-          for v in uscita/*_verticale_60fps.mp4; do
-            [ -e "$v" ] || continue
-            cp "$v" drive/_01_VideoVerticali/
-            ffmpeg -v error -y -i "$v" -vf "crop=1080:1350:0:285" -c:v libx264 -crf 17 -preset slow -an "drive/_03_VideoFormatoPostInstagram/$(basename "${v/_verticale_/_postinstagram_}")"
-          done
+          for v in uscita/*_verticale_60fps.mp4; do [ -e "$v" ] && cp "$v" drive/_01_VideoVerticali/; done
           for v in uscita/*_orizzontale_60fps.mp4; do [ -e "$v" ] && cp "$v" drive/_02_VideoOrizzontali/; done
+          for v in uscita/*_post_60fps.mp4; do [ -e "$v" ] && cp "$v" drive/_03_VideoFormatoPostInstagram/; done
           rclone copy drive "gdrive:" --drive-root-folder-id "$USCITA_DRIVE" --ignore-existing
           N=$(find drive -name '*.mp4' | wc -l)
           CREDITO_DOPO=$(vastai show user --raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["credit"])')
           SPESA=$(python3 -c "print(round($CREDITO_PRIMA-$CREDITO_DOPO,3))")
-          python3 /tmp/avanza.py fase="Finito" salvati="$N" spesa="$SPESA"
+          python3 /tmp/avanza.py fase="Finito" salvati="$N" totale="$(wc -l < coda_tutta.txt)" spesa="$SPESA"
           gh api -X PATCH "repos/$GITHUB_REPOSITORY/check-runs/$CHECK_ID" -f status=completed -f conclusion=$([ "$N" -gt 0 ] && echo success || echo failure) > /dev/null || true
           echo "## $NOME versione $VERSIONE" >> $GITHUB_STEP_SUMMARY
-          echo "Video salvati su Drive: $N su 18. Spesa letta dal credito Vast: $SPESA \$" >> $GITHUB_STEP_SUMMARY
+          echo "Video salvati su Drive: $N su $(wc -l < coda_tutta.txt). Spesa letta dal credito Vast: $SPESA \$" >> $GITHUB_STEP_SUMMARY

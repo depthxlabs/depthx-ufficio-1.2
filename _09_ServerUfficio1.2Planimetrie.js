@@ -196,8 +196,8 @@ require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerCo
     const chiama = (url, corpo) => richiesta('https://api.github.com/' + url, { method: 'POST', headers: { 'User-Agent': 'DepthX-CentroGestione', Accept: 'application/vnd.github+json', Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' } }, corpo ? JSON.stringify(corpo) : '');
     delete cache.social;
     if (d.azione === 'accendi') {
-      const versione = ['1', '2', '3'].includes(String(d.versione)) ? String(d.versione) : '1';
-      const r = await chiama(`repos/${REPO_UFFICIO}/actions/workflows/${PRODUZIONE_SOCIAL}/dispatches`, { ref: 'main', inputs: { versione } });
+      const versioni = ['1 2 3', '1', '2', '3'].includes(String(d.versioni)) ? String(d.versioni) : '1 2 3';
+      const r = await chiama(`repos/${REPO_UFFICIO}/actions/workflows/${PRODUZIONE_SOCIAL}/dispatches`, { ref: 'main', inputs: { versioni } });
       return r.codice === 204 ? { ok: true } : { ok: false, errore: 'GitHub ha risposto ' + r.codice };
     }
     if (d.azione === 'spegni') {
