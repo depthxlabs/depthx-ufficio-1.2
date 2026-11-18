@@ -1,0 +1,30 @@
+# Il ciclo del Download (Ufficio 1.2 Planimetrie 3D, capo area Mike): ogni ora, 15 minuti dopo il controllo di Adrian,
+# ogni membro della squadra prende i passaggi "da scaricare" della sua fonte, scarica il minimo necessario e lo carica su Drive.
+name: Download 00 Ciclo di Mike ogni ora
+on:
+  schedule:
+    - cron: "45 * * * *"
+  workflow_dispatch:
+concurrency: ciclo-download
+jobs:
+  scarica:
+    name: ${{ matrix.dipendente }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        dipendente: [Kevin, Rosa, Sara, Paul, Noah]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install requests google-auth
+      - name: Al lavoro
+        env:
+          CHIAVE_GOOGLE_SHEET: ${{ secrets.CHIAVE_GOOGLE_SHEET }}
+          SEGRETO_DOWNLOAD_DRIVE: ${{ secrets.SEGRETO_DOWNLOAD_DRIVE }}
+          INDIRIZZO_DOWNLOAD_DRIVE: ${{ vars.INDIRIZZO_DOWNLOAD_DRIVE }}
+          PYTHONIOENCODING: utf-8
+          TZ: Europe/Rome
+        run: python -I "_02_Download/_01_Mike_DirettoreAreaDownload/_01_MotoreDelDownload.py" --dipendente "${{ matrix.dipendente }}" --massimo 40

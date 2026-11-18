@@ -68,10 +68,25 @@ const leggiIntervallo = async (foglio, intervallo) => {
 };
 const pausa = ms => new Promise(ok => setTimeout(ok, ms));
 const cache = {};
+// Cache "subito e poi aggiorna": se il dato c'è lo dà all'istante, e se è vecchio lo rilegge dietro le quinte.
+const inCorso = {};
 const conCache = async (chiave, ms, fare) => {
-  if (cache[chiave] && Date.now() - cache[chiave].quando < ms) return cache[chiave].dati;
-  const dati = await fare(); cache[chiave] = { quando: Date.now(), dati }; return dati;
+  const c = cache[chiave];
+  if (c && Date.now() - c.quando < ms) return c.dati;
+  if (!inCorso[chiave]) inCorso[chiave] = fare().then(dati => { cache[chiave] = { quando: Date.now(), dati }; return dati; }).finally(() => delete inCorso[chiave]);
+  return c ? c.dati : inCorso[chiave];
 };
+// Capacità di ogni ricercatore, letta dai programmi su disco: parole di Maps (Google dà al massimo 60 risultati per ricerca) e ricerche Brave
+function capacitaDaiProgrammi() {
+  const cartella = path.join(__dirname, '_01_Ricerca', '_01_Adrian_DirettoreAreaRicerca');
+  const leggi = f => { try { return fs.readFileSync(path.join(cartella, f), 'utf8'); } catch { return ''; } };
+  const out = {};
+  for (const m of leggi('_01_MotoreDellaRicercaSuMaps.py').matchAll(/"(\w+)":\s*\{"ruolo"[^}]*?"parole":\s*\[([^\]]*)\]/g))
+    out[m[1]] = { ...(out[m[1]] || {}), paroleMaps: (m[2].match(/"/g) || []).length / 2 };
+  for (const m of leggi('_03_MotoreDellaRicercaSuBrave.py').matchAll(/"(\w+)":\s*\{"ruolo"[\s\S]*?"ricerche":\s*\[([\s\S]*?)\],/g))
+    out[m[1]] = { ...(out[m[1]] || {}), ricercheBrave: (m[2].match(/\{citta\}/g) || []).length };
+  return out;
+}
 // minuti di GitHub del mese: somma della durata di ogni lavoro, arrotondata al minuto come fa GitHub
 const { execFile } = require('child_process');
 // API pubblica di GitHub (il server gira come utente di sistema e non vede l'accesso di gh): il repository è pubblico
@@ -89,6 +104,22 @@ async function minutiGitHub() {
 
 let cacheChiLavora = { quando: 0, dati: {} };
 const cacheStato = {};
+
+// i dati del pannello di Adrian: obiettivi, assegnazioni, ricercatori, zone, quote
+const caricaAdrian = async () => {
+  const obiettivi = await leggiIntervallo(ZONE_E_QUOTE, 'Obiettivi!A2:H100');
+  const assegnazioni = (await leggiIntervallo(ZONE_E_QUOTE, 'Assegnazioni!A2:I2000')).slice(-80).reverse();
+  const ricercatori = await leggiIntervallo(ZONE_E_QUOTE, 'Ricercatori!A2:E50');
+  const zone = await leggiIntervallo(ZONE_E_QUOTE, 'Zone!A2:E200');
+  let braveRimaste = '';
+  for (const n of ['Max', 'Sam', 'Mia', 'Brian', 'Nora']) {
+    const s = await leggiStato(FOGLI_RICERCA[n]);
+    if (s.esiste && s.braveRimasteMese && (!braveRimaste.quando || s.aggiornato > braveRimaste.quando)) braveRimaste = { valore: s.braveRimasteMese, quando: s.aggiornato };
+  }
+  const github = await conCache('github', 30 * 60000, minutiGitHub);
+  return { obiettivi, assegnazioni, ricercatori, zone, quote: { brave: braveRimaste, github },
+           foglio: `https://docs.google.com/spreadsheets/d/${ZONE_E_QUOTE}/edit` };
+};
 
 require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerConLogEControlloAcceso').avviaServer('Ufficio12Planimetrie', {
   // GET /ChiStaLavorando?fogli=id1,id2,...  ->  { id: { inCorso, attivita, zona, scritte, quota, ... } } per i puntini, il conteggio e i capi area
@@ -108,19 +139,23 @@ require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerCo
     return cacheChiLavora.dati;
   },
   // GET /Adrian  ->  obiettivi, calendario di lavoro (assegnazioni) e quote dei servizi
-  'GET /Adrian': async () => conCache('adrian', 60000, async () => {
-    const obiettivi = await leggiIntervallo(ZONE_E_QUOTE, 'Obiettivi!A2:H100');
-    const assegnazioni = (await leggiIntervallo(ZONE_E_QUOTE, 'Assegnazioni!A2:I2000')).slice(-80).reverse();
-    const ricercatori = await leggiIntervallo(ZONE_E_QUOTE, 'Ricercatori!A2:E50');
-    const zone = await leggiIntervallo(ZONE_E_QUOTE, 'Zone!A2:E200');
-    let braveRimaste = '';
-    for (const n of ['Max', 'Sam', 'Mia', 'Brian', 'Nora']) {
-      const s = await leggiStato(FOGLI_RICERCA[n]);
-      if (s.esiste && s.braveRimasteMese && (!braveRimaste.quando || s.aggiornato > braveRimaste.quando)) braveRimaste = { valore: s.braveRimasteMese, quando: s.aggiornato };
+  'GET /Adrian': async () => conCache('adrian', 4 * 60000, caricaAdrian),
+  // GET /Capacita  ->  quanto può dare ogni ricercatore: limiti degli strumenti e resa reale dei giri già fatti
+  'GET /Capacita': async () => conCache('capacita', 5 * 60000, async () => {
+    const a = await conCache('adrian', 4 * 60000, caricaAdrian);
+    const tutte = await leggiIntervallo(ZONE_E_QUOTE, 'Assegnazioni!A2:I5000');
+    const prog = capacitaDaiProgrammi();
+    const quote = Object.fromEntries((a.ricercatori || []).map(r => [r[0], { attivo: (r[1] || '').toLowerCase() === 'sì', quota: +r[2] || 0 }]));
+    const ricercatori = {};
+    for (const nome of Object.keys(FOGLI_RICERCA)) {
+      const giri = tutte.filter(x => x[1] === nome && /^fatto: \d+ righe/.test(x[6] || '')).map(x => +x[6].match(/\d+/)[0]);
+      const brave = tutte.filter(x => x[1] === nome).map(x => (x[6] || '').match(/(\d+) ricerche Brave/)).filter(Boolean).map(m => +m[1]);
+      ricercatori[nome] = { ...(prog[nome] || {}), ...(quote[nome] || { attivo: false, quota: 0 }),
+        giriMisurati: giri.length, mediaPerGiro: giri.length ? Math.round(giri.reduce((s, x) => s + x, 0) / giri.length * 10) / 10 : null,
+        ricercheBravePerGiro: brave.length ? Math.round(brave.reduce((s, x) => s + x, 0) / brave.length) : null };
     }
-    const github = await conCache('github', 30 * 60000, minutiGitHub);
-    return { obiettivi, assegnazioni, ricercatori, zone, quote: { brave: braveRimaste, github },
-             foglio: `https://docs.google.com/spreadsheets/d/${ZONE_E_QUOTE}/edit` };
+    const zoneAttive = (a.zone || []).filter(z => (z[3] || '').toLowerCase() === 'sì').length;
+    return { ricercatori, zoneAttive, braveRimaste: a.quote && a.quote.brave ? +a.quote.brave.valore || null : null, cicloOre: 3, risultatiMassimiPerRicercaMaps: 60, insiemeAlMassimo: 6 };
   }),
   // POST /Obiettivo { obiettivo, ricercatori, quanti, entro, zone }  ->  nuova riga attiva nella scheda Obiettivi
   'POST /Obiettivo': async ({ datiInviati: d }) => {
@@ -134,7 +169,7 @@ require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerCo
     return r.codice === 200 ? { ok: true } : { ok: false, errore: 'Scrittura non riuscita (' + r.codice + ')' };
   },
   // GET /CRM  ->  tutte le righe dei fogli della Ricerca (si rilegge al massimo ogni 5 minuti)
-  'GET /CRM': async () => conCache('crm', 5 * 60000, async () => {
+  'GET /CRM': async () => conCache('crm', 4 * 60000, async () => {
     const righe = [];
     for (const [nome, foglio] of Object.entries(FOGLI_RICERCA)) {
       try { for (const x of await leggiIntervallo(foglio, 'Contatti!A2:Q5000')) if (x[0]) righe.push([x[0], x[1], x[2] || nome, x[3], x[4], x[5], x[8] || '', x[12] || x[7] || '', x[15] || '']); }
@@ -186,3 +221,7 @@ require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerCo
     return stato;
   },
 });
+
+// Precaricamento: appena acceso e poi ogni 4 minuti rilegge pannello di Adrian e CRM, così le pagine si aprono all'istante
+const precarica = async () => { for (const [k, f] of [['adrian', '/Adrian'], ['crm', '/CRM']]) { try { delete cache[k]; await new Promise(ok => require('http').get(`http://127.0.0.1:8828${f}`, r => { r.resume(); r.on('end', ok); }).on('error', ok)); } catch {} } };
+setTimeout(precarica, 3000); setInterval(precarica, 4 * 60000);
