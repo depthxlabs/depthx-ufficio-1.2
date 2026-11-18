@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { arredaAuto } from './arredoAuto.js';
 import { LIBRERIA, modello, applicaMateriali } from './libreria.js';
-import { portaAuto } from './giroAuto.js';
+import { portaAuto, giroAuto } from './giroAuto.js';
 
 export const H = 2.7;
 let OX = 0, OZ = 0, BX = 0, BZ = 0;
@@ -422,6 +422,15 @@ export function costruisci(scene, M, P, opz = {}) {
     const misura = (tipo, o = {}) => { const k = tipo + JSON.stringify(o); if (!cache.has(k)) { const g = new THREE.Group(); LM[tipo](g, { ...o, luce: false }); g.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(g); cache.set(k, { lx0: b.min.x, lx1: b.max.x, lz0: b.min.z, lz1: b.max.z, h: b.max.y }); } return cache.get(k); };
     const r = arredaAuto(P, misura); P.arredo = r.arredo; if (!P.ordine) P.ordine = r.ordine;
     if (typeof window !== 'undefined') window.__arredoAuto = r;
+  }
+
+  // Unfold senza porta o percorso nella pianta: porta dalla blindata e percorso a piedi automatici
+  const unfold = (typeof location !== 'undefined' && new URLSearchParams(location.search).get('modo')) || P.modo;
+  if (unfold === 'unfold' && (!P.porta || !P.giro)) {
+    const LM = libreria(M, { lampade: [] }); const cache = new Map();
+    const misura = (tipo, o = {}) => { const k = tipo + JSON.stringify(o); if (!cache.has(k)) { const g = new THREE.Group(); LM[tipo](g, { ...o, luce: false }); g.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(g); cache.set(k, { lx0: b.min.x, lx1: b.max.x, lz0: b.min.z, lz1: b.max.z, h: b.max.y }); } return cache.get(k); };
+    if (!P.porta) P.porta = portaAuto(P);
+    if (!P.giro) P.giro = giroAuto(P, misura).giro;
   }
 
   // arredo per stanza
