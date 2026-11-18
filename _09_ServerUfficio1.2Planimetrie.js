@@ -307,7 +307,7 @@ require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerCo
   // GET /Skill?cartella=_01_Ricerca/_02_Anna_AgenzieDaMaps  ->  il testo delle skill del dipendente, file per file in ordine
   'GET /Skill': async ({ indirizzo }) => {
     const cartella = indirizzo.searchParams.get('cartella') || '';
-    if (!/^_\d{2}_[A-Za-z0-9]+(_[A-Za-z0-9]+)*(\/_\d{2}_[A-Za-z0-9]+(_[A-Za-z0-9]+)*){0,2}$/.test(cartella)) return { esiste: false };
+    if (!/^_\d{2}_[A-Za-z0-9]+(_[A-Za-z0-9]+)*(\/_\d{2}_[A-Za-z0-9]+(_[A-Za-z0-9]+)*){0,3}$/.test(cartella)) return { esiste: false };
     const dove = path.join(CARTELLA_SKILL,...cartella.split('/'));
     if (!fs.existsSync(dove)) return { esiste: false };
     const file = fs.readdirSync(dove).filter(n => n.endsWith('.md')).sort();
@@ -342,3 +342,36 @@ require('../../../_07_BaseCondivisaDaTuttiIServer/_02_MotoreCheAvviaOgniServerCo
 const precarica = async () => { for (const [k, f] of [['adrian', '/Adrian'], ['crm', '/CRM'], ['mike', '/Mike'], ['chi', '/ChiStaLavorando'], ['capacita', '/Capacita']]) { try { await new Promise(ok => require('http').get(`http://127.0.0.1:8828${f}`, r => { r.resume(); r.on('end', ok); }).on('error', ok)); } catch {} } };
 setTimeout(() => { leggiDaGitHub(); precarica(); }, 3000); setInterval(precarica, 4 * 60000); setInterval(leggiDaGitHub, 60000);
 setInterval(() => { require('http').get('http://127.0.0.1:8828/ChiStaLavorando', r => r.resume()).on('error', () => {}); }, 30000);
+// ---- Materiale social: il disco legge da GitHub i video finiti e li scrive in _03_DatabaseMediaProdotti, per formato ----
+const MEDIA_DISCO = 'C:/_01_DepthX/_01_Linea1_ProductionDepartement/_02_Linea_1.2_PLANIMETRIE_3D/_07_ProduzioneMaterialeSocialInterno/_03_DatabaseMediaProdotti';
+const VIDEO_LETTI = path.join(__dirname, '..', '..', '..', '_03_MemoriaDatiDelCentroGestione', '_24_Ufficio1.2Planimetrie', '_VideoLettiDaGitHub.json');
+const scaricaFile = (url, dove, conToken) => new Promise((ok, ko) => {
+  const h = { 'User-Agent': 'DepthX-CentroGestione', ...(conToken ? { Authorization: 'Bearer ' + fs.readFileSync(TOKEN_GITHUB, 'utf8').trim() } : {}) };
+  https.get(url, { headers: h }, res => {
+    if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) { res.resume(); return scaricaFile(res.headers.location, dove, false).then(ok, ko); }
+    if (res.statusCode !== 200) { res.resume(); return ko(new Error('risposta ' + res.statusCode)); }
+    const f = fs.createWriteStream(dove); res.pipe(f); f.on('finish', () => f.close(ok)); f.on('error', ko);
+  }).on('error', ko);
+});
+let videoInCorso = false;
+async function leggiVideoDaGitHub() {
+  if (videoInCorso) return;
+  videoInCorso = true;
+  try {
+    const letti = fs.existsSync(VIDEO_LETTI) ? JSON.parse(fs.readFileSync(VIDEO_LETTI, 'utf8')) : [];
+    const pacchi = ((await apiGitHub(`repos/${REPO_UFFICIO}/actions/artifacts?per_page=100`)).artifacts || [])
+      .filter(a => /^video-/.test(a.name) && !a.expired && !letti.includes(a.id));
+    for (const a of pacchi) {
+      const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'video-')), zip = path.join(tmp, 'video.zip');
+      await scaricaFile(`https://api.github.com/repos/${REPO_UFFICIO}/actions/artifacts/${a.id}/zip`, zip, true);
+      execFileSync('powershell', ['-NoProfile', '-Command', `Expand-Archive -LiteralPath '${zip}' -DestinationPath '${path.join(tmp, 'x')}' -Force`], { windowsHide: true });
+      const copia = (da, a2) => { for (const n of fs.readdirSync(da)) { const s = path.join(da, n), d = path.join(a2, n);
+        if (fs.statSync(s).isDirectory()) { fs.mkdirSync(d, { recursive: true }); copia(s, d); } else if (!fs.existsSync(d)) fs.copyFileSync(s, d); } };
+      fs.mkdirSync(MEDIA_DISCO, { recursive: true }); copia(path.join(tmp, 'x'), MEDIA_DISCO);
+      fs.rmSync(tmp, { recursive: true, force: true });
+      letti.push(a.id); fs.writeFileSync(VIDEO_LETTI, JSON.stringify(letti));
+    }
+  } catch (e) { console.error('video da GitHub non letti:', String(e.message).split('\n')[0]); }
+  videoInCorso = false;
+}
+setTimeout(leggiVideoDaGitHub, 10000); setInterval(leggiVideoDaGitHub, 5 * 60000);

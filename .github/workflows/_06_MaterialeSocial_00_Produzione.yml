@@ -1,7 +1,7 @@
-# Ufficio Materiale social (Ufficio 1.2 Planimetrie 3D, responsabile Freya): produce soltanto i video e li carica su Drive.
+# Ufficio Materiale social (Ufficio 1.2 Planimetrie 3D, responsabile Freya): produce soltanto i video e li lascia su GitHub, dove il disco li legge in _03_DatabaseMediaProdotti.
 # Si accende e si spegne dal pannello di Hector. Due schede Vast in Europa nello stesso momento: Nadia FloorView, Isla Unfold.
 # Ogni scheda: noleggio con la regola dei 5 minuti, solo la libreria che il motore usa, provino, render con anti tremolio a 0,00%,
-# scaricamento, distruzione sempre, formato post Instagram dal verticale, salvataggio su Drive per formato.
+# scaricamento, distruzione sempre, formato post Instagram dal verticale, video su GitHub per formato, letti dal disco.
 # L'avanzamento si pubblica ogni 30 secondi in un controllo GitHub "Materiale social <produttore>", letto dal pannello di Hector.
 name: Materiale social 00 Produzione (Freya)
 on:
@@ -31,25 +31,23 @@ jobs:
       PRODOTTO: ${{ matrix.prodotto }}
       NOME: ${{ matrix.nome }}
       SIGLA: ${{ matrix.sigla }}
-      LIBRERIA_DRIVE: 1GCGqFKfkGjIx5DwTdoR3WSjzqInUSovB
-      USCITA_DRIVE: 1LTHpyPu8mC1g5AQrWtQWKCj8V9pTFLpZ
       FLAG_CHROME: "--use-angle=gl-egl --use-gl=angle --enable-gpu"
       GH_TOKEN: ${{ github.token }}
       EUROPA: "AT BE BG CH CZ DE DK EE ES FI FR GB GR HR HU IE IS IT LT LU LV NL NO PL PT RO SE SI SK"
     steps:
       - uses: actions/checkout@v4
+      - name: Libreria 3D dal repository privato depthx-libreria-3d-1.2
+        uses: actions/checkout@v4
+        with: { repository: depthxlabs/depthx-libreria-3d-1.2, ssh-key: "${{ secrets.CHIAVE_LIBRERIA_SOCIALE }}", path: libreria }
 
       - name: Strumenti, chiavi e avanzamento
         env:
-          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
           VAST_API_KEY: ${{ secrets.VAST_API_KEY }}
           SSH_PRIVATA_VAST: ${{ secrets.SSH_PRIVATA_VAST }}
         run: |
           pip install -q vastai
-          curl -fsSL https://rclone.org/install.sh | sudo bash > /dev/null
           sudo apt-get install -y -qq ffmpeg > /dev/null
-          mkdir -p ~/.config/rclone ~/.ssh
-          printf '%s\n' "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
+          mkdir -p ~/.ssh
           printf '%s\n' "$SSH_PRIVATA_VAST" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
           vastai set api-key "$VAST_API_KEY" > /dev/null
           echo "CREDITO_PRIMA=$(vastai show user --raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["credit"])')" >> $GITHUB_ENV
@@ -103,6 +101,10 @@ jobs:
           open("filtro_libreria.txt", "w").write("\n".join(righe + ["- **"]) + "\n")
           print(len(righe), "voci della libreria")
           PY
+          # solo i modelli e i materiali usati dal motore, presi dal repository della libreria
+          mkdir -p lavoro/_00_Motore/assets/libreria
+          rsync -am --include="*/" --filter="merge filtro_libreria.txt" libreria/ lavoro/_00_Motore/assets/libreria/
+          echo "libreria nel pacco: $(du -sh lavoro/_00_Motore/assets/libreria | cut -f1)"
           tar -C lavoro -czf pacco.tgz _00_Motore "$PRODOTTO"
           python3 /tmp/avanza.py fase="Noleggio della scheda" $(for l in $(cut -d'|' -f1 coda_tutta.txt); do printf 'video.%s=in_coda ' "$l"; done)
 
@@ -140,12 +142,9 @@ jobs:
           S="ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -p $SSH_PORTA $SSH_HOST"
           C="scp -o StrictHostKeyChecking=no -P $SSH_PORTA"
           python3 /tmp/avanza.py fase="Caricamento e libreria necessaria"
-          $C pacco.tgz coda_tutta.txt filtro_libreria.txt ~/.config/rclone/rclone.conf "$SSH_HOST:/root/"
+          $C pacco.tgz coda_tutta.txt "$SSH_HOST:/root/"
           $S "set -e; mkdir -p /root/lavoro; tar -xzf /root/pacco.tgz -C /root/lavoro
-            export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq unzip curl > /dev/null
-            curl -fsSL https://rclone.org/install.sh | bash > /dev/null
-            rclone --config /root/rclone.conf copy gdrive:_02_Librerie3D /root/lavoro/_00_Motore/assets/libreria --drive-root-folder-id $LIBRERIA_DRIVE --filter-from /root/filtro_libreria.txt --transfers 16
-            rm -f /root/rclone.conf"
+            export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq unzip curl > /dev/null"
           python3 /tmp/avanza.py fase="Preparazione della scheda"
           $S "cd /root/lavoro/_00_Motore/strumenti && bash vast_prepara.sh"
           : > coda_ok.txt
@@ -188,19 +187,27 @@ jobs:
           N=$(vastai show instances --raw | python3 -c "import json,sys,os; print(len([x for x in json.load(sys.stdin) if str(x['id'])==os.environ['ISTANZA']]))")
           python3 /tmp/avanza.py scheda.stato="distrutta" scheda.macchine_accese="$N"
 
-      - name: Post Instagram e salvataggio su Drive
+      - name: Video nelle cartelle dei formati
         if: always()
         run: |
-          python3 /tmp/avanza.py fase="Salvataggio su Drive"
-          mkdir -p drive/_01_VideoVerticali drive/_02_VideoOrizzontali drive/_03_VideoFormatoPostInstagram
-          for v in uscita/*_verticale_60fps.mp4; do [ -e "$v" ] && cp "$v" drive/_01_VideoVerticali/; done
-          for v in uscita/*_orizzontale_60fps.mp4; do [ -e "$v" ] && cp "$v" drive/_02_VideoOrizzontali/; done
-          for v in uscita/*_post_60fps.mp4; do [ -e "$v" ] && cp "$v" drive/_03_VideoFormatoPostInstagram/; done
-          rclone copy drive "gdrive:" --drive-root-folder-id "$USCITA_DRIVE" --ignore-existing
-          N=$(find drive -name '*.mp4' | wc -l)
+          python3 /tmp/avanza.py fase="Salvataggio su GitHub"
+          mkdir -p uscita_formati/_01_VideoVerticali uscita_formati/_02_VideoOrizzontali uscita_formati/_03_VideoFormatoPostInstagram
+          for v in uscita/*_verticale_60fps.mp4; do [ -e "$v" ] && cp "$v" uscita_formati/_01_VideoVerticali/; done
+          for v in uscita/*_orizzontale_60fps.mp4; do [ -e "$v" ] && cp "$v" uscita_formati/_02_VideoOrizzontali/; done
+          for v in uscita/*_post_60fps.mp4; do [ -e "$v" ] && cp "$v" uscita_formati/_03_VideoFormatoPostInstagram/; done
+          N=$(find uscita_formati -name '*.mp4' | wc -l)
           CREDITO_DOPO=$(vastai show user --raw | python3 -c 'import json,sys; print(json.load(sys.stdin)["credit"])')
           SPESA=$(python3 -c "print(round($CREDITO_PRIMA-$CREDITO_DOPO,3))")
           python3 /tmp/avanza.py fase="Finito" salvati="$N" totale="$(wc -l < coda_tutta.txt)" spesa="$SPESA"
           gh api -X PATCH "repos/$GITHUB_REPOSITORY/check-runs/$CHECK_ID" -f status=completed -f conclusion=$([ "$N" -gt 0 ] && echo success || echo failure) > /dev/null || true
           echo "## $NOME versione $VERSIONE" >> $GITHUB_STEP_SUMMARY
-          echo "Video salvati su Drive: $N su $(wc -l < coda_tutta.txt). Spesa letta dal credito Vast: $SPESA \$" >> $GITHUB_STEP_SUMMARY
+          echo "Video salvati su GitHub per il disco: $N su $(wc -l < coda_tutta.txt). Spesa letta dal credito Vast: $SPESA \$" >> $GITHUB_STEP_SUMMARY
+
+      - name: Video su GitHub, letti dal disco in _03_DatabaseMediaProdotti
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-${{ matrix.chi }}-${{ github.run_id }}
+          path: uscita_formati/
+          retention-days: 7
+          if-no-files-found: ignore
