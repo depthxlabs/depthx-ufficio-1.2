@@ -33,3 +33,28 @@ jobs:
           PYTHONIOENCODING: utf-8
           TZ: Europe/Rome
         run: python -I "_02_Download/_01_Mike_DirettoreAreaDownload/_01_MotoreDelDownload.py" --dipendente "${{ matrix.dipendente }}" --massimo 40
+  riparti:
+    name: Mike riparte se resta da scaricare
+    needs: scarica
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install requests google-auth
+      - id: stato
+        env:
+          CHIAVE_GOOGLE_SHEET: ${{ secrets.CHIAVE_GOOGLE_SHEET }}
+          PYTHONIOENCODING: utf-8
+        run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_04_AdrianOrganizzaLaGiornata.py" --fase stato
+      - name: Giro successivo del Download, senza sosta
+        if: steps.stato.outputs.da_scaricare != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sleep 60
+          gh workflow run _02_Download_00_CicloDiMike.yml -R "${{ github.repository }}"

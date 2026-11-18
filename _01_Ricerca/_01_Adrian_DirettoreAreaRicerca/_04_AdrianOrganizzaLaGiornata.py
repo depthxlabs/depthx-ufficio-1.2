@@ -141,8 +141,21 @@ def aggiorna_obiettivi():
         scrivi(f"Obiettivi!G{i}:H{i}", [[fatti, stato]])
 
 
+
+def stato():
+    """Per la ripartenza senza sosta: c'è un obiettivo attivo non raggiunto? quanti passaggi sono ancora da scaricare?"""
+    oggi = datetime.date.today().isoformat()
+    attivo = any(len(o) >= 8 and o[7].strip().lower() == "attivo" and str(o[2]).isdigit()
+                 and int(o[2]) > (int(o[6]) if str(o[6]).isdigit() else 0) and not (o[4] and o[4] < oggi)
+                 for o in [o + [""] * (8 - len(o)) for o in leggi("Obiettivi!A2:H100")])
+    da_scaricare = sum(1 for p in leggi("PassaggiAlDownload!A2:K5000") if len(p) > 9 and p[9] == "da scaricare")
+    print(f"attivo={'si' if attivo else 'no'} da_scaricare={da_scaricare}")
+    if os.environ.get("GITHUB_OUTPUT"):
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+            f.write("attivo=" + ("si" if attivo else "no") + chr(10) + "da_scaricare=" + str(da_scaricare) + chr(10))
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--fase", choices=["piano", "controllo", "chiusura"], required=True)
+    p.add_argument("--fase", choices=["piano", "controllo", "chiusura", "stato"], required=True)
     f = p.parse_args().fase
-    piano() if f == "piano" else controllo()
+    piano() if f == "piano" else stato() if f == "stato" else controllo()

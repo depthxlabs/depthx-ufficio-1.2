@@ -67,3 +67,33 @@ jobs:
       - env:
           CHIAVE_GOOGLE_SHEET: ${{ secrets.CHIAVE_GOOGLE_SHEET }}
         run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_04_AdrianOrganizzaLaGiornata.py" --fase controllo
+  riparti:
+    name: Adrian riparte subito se c'è un obiettivo attivo
+    needs: [piano, chiusura]
+    if: always() && needs.piano.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install requests google-auth
+      - id: stato
+        env:
+          CHIAVE_GOOGLE_SHEET: ${{ secrets.CHIAVE_GOOGLE_SHEET }}
+        run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_04_AdrianOrganizzaLaGiornata.py" --fase stato
+      - name: Download subito, se c'è da scaricare
+        if: steps.stato.outputs.da_scaricare != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run _02_Download_00_CicloDiMike.yml -R "${{ github.repository }}"
+      - name: Giro successivo della Ricerca, senza sosta
+        if: steps.stato.outputs.attivo == 'si'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LAVORI: ${{ needs.piano.outputs.lavori }}
+        run: |
+          if [ -z "$LAVORI" ] || [ "$LAVORI" = "[]" ]; then sleep 120; fi
+          gh workflow run _01_Ricerca_00_GiornataDellaRicerca.yml -R "${{ github.repository }}"
