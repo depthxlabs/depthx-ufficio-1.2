@@ -90,6 +90,7 @@ export function materiali() {
     pavPietra: new THREE.MeshStandardMaterial({ map: pietra, roughness: 0.32, transparent: true }),
     pavDeck: new THREE.MeshStandardMaterial({ map: deck, roughness: 0.7, transparent: true }),
     soffitto: new THREE.MeshStandardMaterial({ color: 0xf7f6f2, roughness: 0.95 }),
+    prato: Object.assign(new THREE.MeshStandardMaterial({ color: 0x7a9a5a, roughness: 0.95 }), { userData: { metriTrama: 2.0 } }), // versione 3: prato del contesto, la trama Grass004 arriva dalla libreria
     rovere: new THREE.MeshStandardMaterial({ map: legno, color: 0xe9d6bc, roughness: 0.5 }),
     noce: new THREE.MeshStandardMaterial({ map: legno, color: 0x8a6a50, roughness: 0.45 }),
     teak: new THREE.MeshStandardMaterial({ map: deck, color: 0xd9c4a8, roughness: 0.6 }),

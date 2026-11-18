@@ -1,0 +1,21 @@
+# Costruisce l'immagine minima della scheda Vast (Chrome, Node, ffmpeg, puppeteer-core) e la pubblica su GitHub Packages.
+name: Materiale social 01 Immagine della scheda
+on:
+  workflow_dispatch:
+  push:
+    paths: ["_06_MaterialeSocial/_03_ImmagineDellaScheda/**"]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  immagine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - uses: docker/build-push-action@v6
+        with:
+          context: _06_MaterialeSocial/_03_ImmagineDellaScheda
+          push: true
+          tags: ghcr.io/depthxlabs/depthx-scheda-render:latest

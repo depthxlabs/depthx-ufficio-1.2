@@ -1,0 +1,8 @@
+strumenti/stato.json
+strumenti/*.log
+strumenti/*.out
+strumenti/antiglitch_*.json
+strumenti/coda*.txt
+strumenti/node_modules/
+_fotogrammi/
+_prove/
