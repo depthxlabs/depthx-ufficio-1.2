@@ -177,7 +177,7 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 8
       matrix:
         parte: ${{ fromJSON(needs.parti.outputs.parti) }}
     steps:

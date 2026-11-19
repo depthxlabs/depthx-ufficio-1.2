@@ -105,18 +105,25 @@ def lavora(hp, righe):
     S(hp, "set -e; mkdir -p /root/lavoro && tar -xzf /root/" + os.path.basename(PACCO) + " -C /root/lavoro; ln -sfn /opt/depthx/node_modules /root/lavoro/_00_Motore/strumenti/node_modules; "
           "cp /root/coda_scheda.txt /root/lavoro/_00_Motore/strumenti/coda_vast.txt; rm -f /root/lavoro/_00_Motore/strumenti/stato.json /root/lavoro/_00_Motore/strumenti/vast_rendi.log; "
           f"cd /root/lavoro/_00_Motore/strumenti && SOGLIA_GLITCH='{os.environ.get('SOGLIA_GLITCH', '0')}' FLAG_CHROME='{os.environ['FLAG_CHROME']}' nohup node vast_rendi.js /root/lavoro coda_vast.txt 12 400 > rendi.out 2>&1 &", 120)
-    t0, ultimo, fermo_da, esito = time.time(), -1, time.time(), "finito"
+    t0, ultimo, fermo_da, esito, inizio_render = time.time(), -1, time.time(), "finito", None
     time.sleep(20 + SFASA % 15)
     while True:
-        r = S(hp, "pgrep -f '[v]ast_rendi.js' >/dev/null && echo vivo; cat /root/lavoro/_00_Motore/strumenti/stato.json 2>/dev/null", 30).stdout
-        vivo = r.startswith("vivo")
-        try: f = json.loads(r[4:] if vivo else r).get("fotogrammi", 0)
-        except Exception: f = ultimo if ultimo > 0 else 0
-        if f != ultimo: ultimo, fermo_da = f, time.time()
+        r = S(hp, "pgrep -f '[v]ast_rendi.js' >/dev/null && echo vivo; cat /root/lavoro/_00_Motore/strumenti/stato.json 2>/dev/null; echo; wc -l < /root/lavoro/_00_Motore/strumenti/vast_rendi.log 2>/dev/null", 30).stdout
+        vivo = r.startswith("vivo"); parti = (r[4:] if vivo else r).strip().split(chr(10))
+        try: f = json.loads(chr(10).join(parti[:-1])).get("fotogrammi", 0) if len(parti) > 1 and parti[0].strip() else -1
+        except Exception: f = -1
+        try: righe_log = int(parti[-1])
+        except Exception: righe_log = 0
         if not vivo: break
-        if time.time() - fermo_da > FERMO_S and f > 0: esito = "bloccata"; scrivi(f"fotogrammi fermi a {f} da 2 minuti: scheda bloccata"); break
-        if time.time() - fermo_da > 6 * 60: esito = "bloccata"; scrivi("nessun fotogramma in 6 minuti: scheda bloccata"); break
-        if time.time() - t0 > TETTO_MIN: esito = "tetto di tempo"; scrivi("15 minuti di render: si scarica quello che c'è"); break
+        if f < 0:  # controllo anti tremolio prima del render: avanza se il registro cresce; al massimo 12 minuti
+            if righe_log != ultimo: ultimo, fermo_da = righe_log, time.time()
+            if time.time() - fermo_da > 4 * 60: esito = "bloccata"; scrivi("controllo anti tremolio fermo da 4 minuti: scheda bloccata"); break
+            if time.time() - t0 > 12 * 60: esito = "bloccata"; scrivi("controllo anti tremolio oltre 12 minuti: scheda bloccata"); break
+        else:
+            if inizio_render is None: inizio_render, ultimo, fermo_da = time.time(), -2, time.time()
+            if f != ultimo: ultimo, fermo_da = f, time.time()
+            if time.time() - fermo_da > FERMO_S: esito = "bloccata"; scrivi(f"fotogrammi fermi a {f} da 2 minuti: scheda bloccata"); break
+            if time.time() - inizio_render > TETTO_MIN: esito = "tetto di tempo"; scrivi("15 minuti di render: si scarica quello che c'è"); break
         if spesa_superata(): esito = "tetto di spesa"; scrivi("tetto di spesa superato: si ferma"); break
         time.sleep(15)
     scrivi(f"render {esito} dopo {int(time.time() - t0)} s, fotogrammi {ultimo}")
