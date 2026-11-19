@@ -19,5 +19,7 @@ export default {
     { id: 'bagno', r: [0, 5.5, 3.0, 8.0], pav: 'pietra' },
     { id: 'studio', r: [3.0, 5.5, 6.0, 8.0], pav: 'legno' },
   ],
+  // zona TV messa a mano (19/11/2026): TV sul muro verso le camere tra le due porte, divano di fronte, tappeto in mezzo
+  extra: [['soggiorno', 'mobileTV', 5.72, 3.4, -90, { L: 1.6 }], ['soggiorno', 'divano', 3.3, 3.4, 90, { L: 2.2 }], ['soggiorno', 'tappeto', 4.5, 3.4, 90, { w: 2.4, d: 1.6 }]],
   ordine: ['soggiorno', 'studio', 'matrimoniale', 'cameretta', 'bagno'],
 };
