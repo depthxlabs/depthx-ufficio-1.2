@@ -13,7 +13,7 @@ export default {
     { a: [3.0, 5.5], b: [3.0, 8.0], t: 0.12, ap: [] },
   ],
   stanze: [
-    { id: 'soggiorno', r: [0, 0, 6.0, 5.5], pav: 'legno' },
+    { id: 'soggiorno', r: [0, 0, 6.0, 5.5], pav: 'legno', senzaIsola: true, tavoloPrima: true },
     { id: 'matrimoniale', r: [6.0, 0, 12.0, 4.0], pav: 'legno' },
     { id: 'cameretta', r: [6.0, 4.0, 12.0, 8.0], pav: 'legno' },
     { id: 'bagno', r: [0, 5.5, 3.0, 8.0], pav: 'pietra' },

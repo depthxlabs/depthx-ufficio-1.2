@@ -203,7 +203,7 @@ export function arredaAuto(P, misura) {
     if (!rec) return null;
     // colonne a fianco, poi isola davanti negli spazi grandi
     const L = rec.o.L; for (const s of [1, -1]) { const [x, z] = loc(rec, s * (L / 2 + 0.6 + 0.012), 0); if (metti(k, 'colonne', { L: 1.2, colore: rec.o.colore }, x, z, rec.r, { clr: 0.9 })) break; }
-    if (!conTavolo && areaDi(k) > 26) for (const IL of [2.2, 1.8]) { const [x, z] = loc(rec, 0, 0.33 + 1.1 + 0.5); if (metti(k, 'isola', { L: IL, P: 1.0, sgabelli: IL > 2 ? 3 : 2, colore: 'noce' }, x, z, rec.r, { clr: 0.6 })) { luci++; break; } }
+    if (!conTavolo && areaDi(k) > 26 && !(sInfo(ids[k]) || {}).senzaIsola) for (const IL of [2.2, 1.8]) { const [x, z] = loc(rec, 0, 0.33 + 1.1 + 0.5); if (metti(k, 'isola', { L: IL, P: 1.0, sgabelli: IL > 2 ? 3 : 2, colore: 'noce' }, x, z, rec.r, { clr: 0.6 })) { luci++; break; } }
     return rec;
   };
   const fTavolo = (k, Ls, vicino) => { for (const L of Ls) { const n = L >= 1.8 ? 3 : 2; const r = piazza(k, 'tavolo', { L, P: L >= 1.6 ? 0.92 : 0.8, n, luce: luci < 6 }, { muro: false, rots: [0, 90], giro: 0.45, pref: (c, ctx) => (vicino ? -Math.hypot(c.cx - vicino.x, c.cz - vicino.z) : 0) + lontanoPorte(c, ctx) * 0.3, prove: 30 }); if (r) { if (r.o.luce) luci++; return r; } }
