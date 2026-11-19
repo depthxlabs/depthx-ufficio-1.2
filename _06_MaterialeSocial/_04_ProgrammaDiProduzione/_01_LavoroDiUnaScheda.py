@@ -69,7 +69,7 @@ def ssh_di(i):
 
 
 def S(hp, cmd, t=60):
-    return subprocess.run(["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=8", "-o", "ServerAliveInterval=15", "-p", hp[1], hp[0], cmd], capture_output=True, text=True, timeout=t)
+    return subprocess.run(["ssh", "-n", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=8", "-o", "ServerAliveInterval=15", "-p", hp[1], hp[0], cmd], capture_output=True, text=True, timeout=t, stdin=subprocess.DEVNULL)
 
 
 def noleggia(base):
@@ -104,7 +104,7 @@ def lavora(hp, righe):
     subprocess.run(C + [PACCO, "coda_scheda.txt", f"{hp[0]}:/root/"], check=True, timeout=600)
     S(hp, "set -e; mkdir -p /root/lavoro && tar -xzf /root/" + os.path.basename(PACCO) + " -C /root/lavoro; ln -sfn /opt/depthx/node_modules /root/lavoro/_00_Motore/strumenti/node_modules; "
           "cp /root/coda_scheda.txt /root/lavoro/_00_Motore/strumenti/coda_vast.txt; rm -f /root/lavoro/_00_Motore/strumenti/stato.json /root/lavoro/_00_Motore/strumenti/vast_rendi.log; "
-          f"cd /root/lavoro/_00_Motore/strumenti && SOGLIA_GLITCH='{os.environ.get('SOGLIA_GLITCH', '0')}' FLAG_CHROME='{os.environ['FLAG_CHROME']}' nohup node vast_rendi.js /root/lavoro coda_vast.txt 12 400 > rendi.out 2>&1 &", 120)
+          f"cd /root/lavoro/_00_Motore/strumenti && SOGLIA_GLITCH='{os.environ.get('SOGLIA_GLITCH', '0')}' FLAG_CHROME='{os.environ['FLAG_CHROME']}' setsid nohup node vast_rendi.js /root/lavoro coda_vast.txt 12 400 > rendi.out 2>&1 < /dev/null & sleep 2; echo avviato", 120)
     t0, ultimo, fermo_da, esito, inizio_render = time.time(), -1, time.time(), "finito", None
     time.sleep(20 + SFASA % 15)
     while True:
