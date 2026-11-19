@@ -42,7 +42,7 @@ function soloInterni(P) {
   const est = new Set(P.stanze.filter(s => s.esterno).map(s => s.id));
   const stanze = P.stanze.filter(s => !s.esterno); const b = [1e9, 1e9, -1e9, -1e9];
   for (const s of stanze) { b[0] = Math.min(b[0], s.r[0]); b[1] = Math.min(b[1], s.r[1]); b[2] = Math.max(b[2], s.r[2]); b[3] = Math.max(b[3], s.r[3]); }
-  return { ...P, box: b, stanze, muri: P.muri.filter(m => !m.ringhiera), arredo: (P.arredo || []).filter(a => !est.has(a[0])), ordine: P.ordine ? P.ordine.filter(id => !est.has(id)) : P.ordine };
+  return { ...P, box: b, stanze, muri: P.muri.filter(m => !m.ringhiera), arredo: P.arredo && P.arredo !== 'auto' ? P.arredo.filter(a => !est.has(a[0])) : P.arredo, ordine: P.ordine ? P.ordine.filter(id => !est.has(id)) : P.ordine };
 }
 
 export async function avvia(P) {

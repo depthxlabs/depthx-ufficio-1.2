@@ -206,7 +206,10 @@ export function arredaAuto(P, misura) {
     if (!conTavolo && areaDi(k) > 26) for (const IL of [2.2, 1.8]) { const [x, z] = loc(rec, 0, 0.33 + 1.1 + 0.5); if (metti(k, 'isola', { L: IL, P: 1.0, sgabelli: IL > 2 ? 3 : 2, colore: 'noce' }, x, z, rec.r, { clr: 0.6 })) { luci++; break; } }
     return rec;
   };
-  const fTavolo = (k, Ls, vicino) => { for (const L of Ls) { const n = L >= 1.8 ? 3 : 2; const r = piazza(k, 'tavolo', { L, P: L >= 1.6 ? 0.92 : 0.8, n, luce: luci < 6 }, { muro: false, rots: [0, 90], giro: 0.45, pref: (c, ctx) => (vicino ? -Math.hypot(c.cx - vicino.x, c.cz - vicino.z) : 0) + lontanoPorte(c, ctx) * 0.3, prove: 30 }); if (r) { if (r.o.luce) luci++; return r; } } return null; };
+  const fTavolo = (k, Ls, vicino) => { for (const L of Ls) { const n = L >= 1.8 ? 3 : 2; const r = piazza(k, 'tavolo', { L, P: L >= 1.6 ? 0.92 : 0.8, n, luce: luci < 6 }, { muro: false, rots: [0, 90], giro: 0.45, pref: (c, ctx) => (vicino ? -Math.hypot(c.cx - vicino.x, c.cz - vicino.z) : 0) + lontanoPorte(c, ctx) * 0.3, prove: 30 }); if (r) { if (r.o.luce) luci++; return r; } }
+    // seconda ricerca, solo se la prima non ha trovato posto: più posizioni e anche un tavolo da 1 metro (ogni zona giorno ha il suo tavolo)
+    for (const L of [...Ls, 1.0]) { const r = piazza(k, 'tavolo', { L, P: 0.8, n: 2, luce: luci < 6 }, { muro: false, rots: [0, 90], giro: 0.4, pref: (c, ctx) => (vicino ? -Math.hypot(c.cx - vicino.x, c.cz - vicino.z) : 0) + lontanoPorte(c, ctx) * 0.3, prove: 150 }); if (r) { if (r.o.luce) luci++; return r; } }
+    return null; };
 
   const fSoggiorno = (k) => {
     const cu = conCucina.has(k) ? fCucina(k, false) : null;
@@ -234,7 +237,7 @@ export function arredaAuto(P, misura) {
       for (const s of [1, -1]) { const [x, z] = loc(div, s * (div.o.L / 2 + 0.3), -0.25); if (metti(k, 'lampada', { luce: luci < 6 }, x, z, 0)) { luci++; break; } }
       if (div.aMuro) { const [dx, dz] = dirFronte(div.r); const fp = div.fp; const x = dz ? (fp[0] + fp[2]) / 2 : (dx > 0 ? fp[0] - 0.006 : fp[2] + 0.006), z = dz ? (dz > 0 ? fp[1] - 0.006 : fp[3] + 0.006) : (fp[1] + fp[3]) / 2; posa(k, 'quadro', { w: 1.2, h: 0.8, y: 1.5, v: k % 3 }, x, z, div.r, [x, z, x, z]); }
     }
-    fTavolo(k, [2.0, 1.8, 1.6, 1.4, 1.2], cu ? { x: cu.x, z: cu.z } : null);
+    if (!(sInfo(ids[k]) || {}).senzaTavolo) fTavolo(k, [2.0, 1.8, 1.6, 1.4, 1.2], cu ? { x: cu.x, z: cu.z } : null); // senzaTavolo: open space con la cucina e il suo tavolo in una zona accanto
     angoli(k, 2, 4); tende(k);
   };
 

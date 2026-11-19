@@ -107,8 +107,8 @@ export function materiali() {
     terracotta: new THREE.MeshPhysicalMaterial({ map: texTessuto('#b8735a', 3), roughness: 0.95, sheen: 0.8, sheenRoughness: 0.5, sheenColor: new THREE.Color(0xffd0b0) }),
     lino: new THREE.MeshPhysicalMaterial({ map: texTessuto('#f2efe9', 4), roughness: 0.95, sheen: 1, sheenRoughness: 0.5, sheenColor: new THREE.Color(0xffffff) }),
     esterno: new THREE.MeshStandardMaterial({ map: texTessuto('#e4e0d8', 8), roughness: 0.95 }),
-    tappeto: new THREE.MeshStandardMaterial({ map: texTessuto('#d8d0c2', 5), roughness: 1 }),
-    tappetoScuro: new THREE.MeshStandardMaterial({ map: texTessuto('#7a746c', 6), roughness: 1 }),
+    tappeto: new THREE.MeshStandardMaterial({ map: texTessuto('#d8d0c2', 5), roughness: 1, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }), // sempre sopra il pavimento: niente sfarfallio da lontano
+    tappetoScuro: new THREE.MeshStandardMaterial({ map: texTessuto('#7a746c', 6), roughness: 1, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }),
     vetro: new THREE.MeshPhysicalMaterial({ color: 0xdfe9ee, roughness: 0.04, metalness: 0, transparent: true, opacity: 0.16, envMapIntensity: 1.6, depthWrite: false }),
     telaio: new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.45, metalness: 0.5 }),
     ceramica: new THREE.MeshStandardMaterial({ color: 0xfbfbfa, roughness: 0.12 }),
@@ -489,21 +489,32 @@ export function costruisci(scene, M, P, opz = {}) {
       const pa = C.pa, n = { s: [0, 1], n: [0, -1], e: [1, 0], w: [-1, 0] }[pa.lato];
       const fine = n[1] > 0 ? z1 : n[1] < 0 ? z0 : n[0] > 0 ? x1 : x0; const inizio = n[1] ? Math.max(...P.stanze.filter(s => s.esterno).map(s => n[1] > 0 ? s.r[3] : -s.r[1]).map(Math.abs), pa.z) : pa.x;
       for (let d = 0.5; ; d += 0.75) { const p = n[1] ? [pa.x, (n[1] > 0 ? Math.max(inizio, pa.z) : Math.min(pa.z, inizio)) + n[1] * d] : [pa.x + n[0] * d, pa.z]; if ((n[1] && (n[1] > 0 ? p[1] > fine - 0.4 : p[1] < fine + 0.4)) || (n[0] && (n[0] > 0 ? p[0] > fine - 0.4 : p[0] < fine + 0.4))) break; const c = W(p[0], p[1]); blocco(g, M.davanzale, c.x, 0, c.z, n[1] ? 1.1 : 0.55, 0.03, n[1] ? 0.55 : 1.1, 0.01); }
-      const siepe = new THREE.MeshStandardMaterial({ color: 0x3e5a2c, roughness: 0.95 });
-      for (const [a, b, c, d] of [[x0 + 0.4, z0 + 0.4, x1 - 0.4, z0 + 0.4], [x0 + 0.4, z0 + 0.4, x0 + 0.4, z1 - 0.4], [x1 - 0.4, z0 + 0.4, x1 - 0.4, z1 - 0.4]]) { const cA = W(a, b), cB = W(c, d); blocco(g, siepe, (cA.x + cB.x) / 2, 0, (cA.z + cB.z) / 2, Math.abs(cB.x - cA.x) + 0.6, 0.75, Math.abs(cB.z - cA.z) + 0.6, 0.15); }
+      const siepe = new THREE.MeshStandardMaterial({ color: 0x5f7d45, roughness: 0.95 });
+      for (const [a, b, c, d] of [[x0 + 0.4, z0 + 0.4, x1 - 0.4, z0 + 0.4], [x0 + 0.4, z0 + 0.4, x0 + 0.4, z1 - 0.4], [x1 - 0.4, z0 + 0.4, x1 - 0.4, z1 - 0.4]]) { const cA = W(a, b), cB = W(c, d); blocco(g, siepe, (cA.x + cB.x) / 2, 0, (cA.z + cB.z) / 2, Math.abs(cB.x - cA.x) + 0.45, 0.6, Math.abs(cB.z - cA.z) + 0.45, 0.18); }
     } else if (C) {
-      // pianerottolo: corridoio aperto in fondo (la camera della Unfold scende dall'alto senza attraversare muri), ascensore a destra, scala a sinistra
+      // pianerottolo condominiale: pavimento in pietra su tutta la larghezza, pareti chiare delle parti comuni unite al muro della casa,
+      // ascensore a destra, porta del vicino con zerbino a sinistra, lampada a parete; nella FloorView il fondo è chiuso da un muro con finestra
       const pa = C.pa, n = C.n; const mu = P.muri.find(m => !m.ringhiera && (m.ap || []).some(a => a[2] === 'blindata')); const t = mu ? mu.t : 0.3, d0 = t / 2;
       const g = new THREE.Group(); g.position.copy(W(pa.x, pa.z)); g.rotation.y = n[1] ? (n[1] > 0 ? 0 : Math.PI) : (n[0] > 0 ? Math.PI / 2 : -Math.PI / 2); radice.add(g); casa.contesto = g;
       const lar = 1.9, pro = 5.2, tm = 0.2;
-      const pav = blocco(g, M.davanzale, 0.55, -0.02, d0 + pro / 2, 2 * lar - 1.1, 0.02, pro, 0.002); pav.receiveShadow = true;
-      for (const sx of [-1, 1]) { const m = blocco(g, M.muro, sx * (lar + tm / 2), 0, d0 + pro / 2, tm, H, pro, 0.005); const tg = blocco(g, M.taglio, sx * (lar + tm / 2), H, d0 + pro / 2, tm + 0.002, 0.012, pro + 0.002, 0); tg.castShadow = false; }
+      const geoP = new THREE.PlaneGeometry(2 * lar, pro); geoP.rotateX(-Math.PI / 2);
+      { const uv = geoP.attributes.uv, pos = geoP.attributes.position; for (let i = 0; i < uv.count; i++) uv.setXY(i, pos.getX(i) / 1.2, (pos.getZ(i) + d0 + pro / 2) / 1.2); }
+      const mPav = M.pavPietra.clone(); mPav.opacity = 1; mPav.transparent = false; mPav.color = new THREE.Color(0xd9d4cb);
+      const pav = new THREE.Mesh(geoP, mPav); pav.position.set(0, 0.001, d0 + pro / 2); pav.receiveShadow = true; g.add(pav);
+      const muroC = M.muro.clone(); muroC.color = new THREE.Color(0xe9e5de);
+      for (const sx of [-1, 1]) { blocco(g, muroC, sx * (lar + tm / 2), 0, d0 + pro / 2, tm, H, pro + (opz.soffitti ? 0 : tm), 0.005); const tg = blocco(g, M.taglio, sx * (lar + tm / 2), H, d0 + pro / 2, tm + 0.002, 0.012, pro + 0.002, 0); tg.castShadow = false; }
+      if (!opz.soffitti) {
+        blocco(g, muroC, 0, 0, d0 + pro + tm / 2, 2 * lar, H, tm, 0.005); const tg = blocco(g, M.taglio, 0, H, d0 + pro + tm / 2, 2 * lar + 2 * tm + 0.002, 0.012, tm + 0.002, 0); tg.castShadow = false;
+        blocco(g, M.nero, 0, 1.0, d0 + pro - 0.012, 1.3, 1.25, 0.03, 0.004); blocco(g, M.vetro, 0, 1.04, d0 + pro - 0.03, 1.2, 1.17, 0.01, 0.002).castShadow = false;
+      }
       // ascensore sul muro di destra
       blocco(g, M.antracite, lar - 0.03, 0, d0 + 2.2, 0.06, 2.25, 1.25, 0.006); blocco(g, M.acciaio, lar - 0.07, 0.02, d0 + 1.9, 0.02, 2.1, 0.52, 0.003); blocco(g, M.acciaio, lar - 0.07, 0.02, d0 + 2.5, 0.02, 2.1, 0.52, 0.003);
       blocco(g, M.nero, lar - 0.06, 1.1, d0 + 3.05, 0.03, 0.14, 0.08, 0.004);
-      // scala che scende a sinistra, con ringhiera
-      for (let i = 0; i < 12; i++) blocco(g, M.davanzale, -lar + 0.55, -0.17 * (i + 1), d0 + 0.6 + i * 0.28, 1.1, 0.17, 0.3, 0.004);
-      blocco(g, M.vetro, -lar + 1.11, -0.02, d0 + 2.3, 0.02, 1.0, 3.4, 0.002).castShadow = false; blocco(g, M.antracite, -lar + 1.11, 0.98, d0 + 2.3, 0.05, 0.05, 3.4, 0.01);
+      // porta del vicino sul muro di sinistra, con telaio e zerbino
+      blocco(g, M.nero, -lar + 0.02, 0, d0 + 3.4, 0.04, 2.25, 1.12, 0.004); blocco(g, M.noce, -lar + 0.045, 0.01, d0 + 3.4, 0.03, 2.15, 1.0, 0.004); blocco(g, M.acciaio, -lar + 0.07, 1.0, d0 + 3.05, 0.03, 0.03, 0.14, 0.004);
+      blocco(g, M.antracite, -lar + 0.5, 0.002, d0 + 3.4, 0.55, 0.012, 0.85, 0.004);
+      // lampada a parete
+      blocco(g, M.laccatoB, lar - 0.04, 2.15, d0 + 4.4, 0.06, 0.18, 0.3, 0.02);
       const L = new THREE.PointLight(0xfff1dc, 0, 6, 2); L.position.set(0, 2.5, d0 + 2.4); g.add(L); casa.lampade.push(L);
     }
   }

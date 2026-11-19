@@ -15,7 +15,10 @@ on:
         default: "1 2 3"
       schede:
         description: "Schede in parallelo"
-        default: "14"
+        default: "4"
+      solo:
+        description: "Solo questi video, separati da spazi (vuoto: tutti)"
+        default: ""
 concurrency: materiale-social
 permissions:
   contents: read
@@ -24,10 +27,13 @@ permissions:
 env:
   GH_TOKEN: ${{ github.token }}
   VERSIONE: ${{ inputs.versioni || '1 2 3' }}
-  SCHEDE: ${{ inputs.schede || '14' }}
+  SCHEDE: ${{ inputs.schede || '4' }}
+  SOLO: ${{ inputs.solo }}
+  SOGLIA_GLITCH: "0.0000999"
+  TETTO_SPESA: "1.5"
   IMMAGINE: ghcr.io/depthxlabs/depthx-scheda-render:latest
   FLAG_CHROME: "--use-angle=gl-egl --use-gl=angle --enable-gpu"
-  PAESI: "AT BE BG CH CZ DE DK EE ES FI FR GB GR HR HU IE IS IT LT LU LV NL NO PL PT RO SE SI SK US CA"
+  PAESI: "AT BE BG CH CZ DE DK EE ES FI FR GB GR HR HU IE IS IT LT LU LV NL NO PL PT RO SE SI SK"
 jobs:
   prepara:
     name: Preparazione del pacco e della coda
@@ -65,6 +71,10 @@ jobs:
                           i = f"{sigla}{c[1:3]}{ver}{f[0]}"
                           coda.append(f"{i}|{prod}/{c}/codice/index.html?o={f[0]}&ver={ver}|{f}|{prod}/{c}/DepthX_{nome}{ver}{c}_{f}_60fps.mp4|{chi}")
                           if f == "orizzontale": orizz.append(i)
+          solo = set(os.environ.get("SOLO", "").split())
+          if solo:
+              coda = [r for r in coda if r.split("|")[0] in solo]
+              orizz = sorted({r.split("|")[0][:-1] + "o" for r in coda})
           open("coda_tutta.txt", "w").write("\n".join(coda) + "\n")
           gruppi = [orizz[k::12] for k in range(12)]
           for k, g in enumerate(gruppi): open(f"gruppo_{k+1:02d}.txt", "w").write("\n".join(g) + "\n")
@@ -164,13 +174,14 @@ jobs:
     needs: [prepara, parti]
     if: always() && needs.parti.result == 'success' && needs.parti.outputs.parti != '[]'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
-      max-parallel: 20
+      max-parallel: 4
       matrix:
         parte: ${{ fromJSON(needs.parti.outputs.parti) }}
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { name: pacco }
       - uses: actions/download-artifact@v4
@@ -183,73 +194,14 @@ jobs:
           pip install -q vastai && vastai set api-key "$VAST_API_KEY" > /dev/null
           mkdir -p ~/.ssh && printf '%s\n' "$SSH_PRIVATA_VAST" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
           echo "PARTE=$(printf '%02d' ${{ matrix.parte }})" >> $GITHUB_ENV
-      - name: Noleggio di 2 schede, resta la prima pronta
+      - name: Lavoro della scheda, con controlli rigidi
+        env:
+          CREDITO_INIZIO: ${{ needs.prepara.outputs.credito }}
+        run: python3 _06_MaterialeSocial/_04_ProgrammaDiProduzione/_01_LavoroDiUnaScheda.py "$PARTE" "parte_$PARTE.txt" pacco.tgz
+      - name: Distruzione di ogni scheda della parte, sempre
+        if: always()
         run: |
-          python3 - <<'PY'
-          import json, os, subprocess, time
-          parte, N = int(os.environ["PARTE"]), len(json.loads('${{ needs.parti.outputs.parti }}'))
-          paesi = os.environ["PAESI"].split()
-          def offerte():
-              o = []
-              for g in ("RTX_4090", "RTX_5090"):
-                  r = subprocess.run(["vastai", "search", "offers", f"gpu_name={g} num_gpus=1 reliability>0.98 cpu_cores_effective>=16 inet_down>300 disk_space>=30 direct_port_count>=1 rentable=true dph_total<1.2", "-o", "dph+", "--raw"], capture_output=True, text=True)
-                  try: o += [x for x in json.loads(r.stdout) if str(x.get("geolocation", "")).split(",")[-1].strip() in paesi]
-                  except Exception: pass
-              return sorted(o, key=lambda x: x["dph_total"])
-          def crea(x):
-              r = subprocess.run(["vastai", "create", "instance", str(x["id"]), "--image", os.environ["IMMAGINE"], "--login", f"-u {os.environ['GITHUB_ACTOR']} -p {os.environ['GH_TOKEN']} ghcr.io",
-                                  "--env", "-e NVIDIA_DRIVER_CAPABILITIES=all", "--disk", "30", "--ssh", "--direct", "--label", f"ms|{os.environ['GITHUB_RUN_ID']}|{os.environ['PARTE']}", "--raw"], capture_output=True, text=True)
-              try: return json.loads(r.stdout).get("new_contract")
-              except Exception: return None
-          def pronta(i):
-              r = subprocess.run(["vastai", "ssh-url", str(i)], capture_output=True, text=True); u = r.stdout.strip()
-              if not u.startswith("ssh://"): return None
-              h, p = u[6:].rsplit(":", 1)
-              ok = subprocess.run(["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=6", "-p", p, h, "test -x /usr/bin/google-chrome"], capture_output=True).returncode == 0
-              return (h, p) if ok else None
-          for giro in range(3):
-              o = offerte(); base = (giro * N + parte - 1) * 2
-              scelte = (o[base:base + 2] or o[:2]) if o else []
-              istanze = {}
-              for x in scelte:
-                  i = crea(x)
-                  if i: istanze[i] = x
-              print("giro", giro + 1, "schede noleggiate:", list(istanze))
-              t0, vinta = time.time(), None
-              while istanze and time.time() - t0 < 300 and not vinta:
-                  time.sleep(5)
-                  for i in list(istanze):
-                      hp = pronta(i)
-                      if hp: vinta = (i, hp); break
-              for i in istanze:
-                  if not vinta or i != vinta[0]: subprocess.run(["vastai", "destroy", "instance", str(i), "-y"], capture_output=True)
-              if vinta:
-                  i, (h, p) = vinta; x = istanze[i]
-                  with open(os.environ["GITHUB_ENV"], "a") as f:
-                      f.write(f"ISTANZA={i}\nSSH_HOST={h}\nSSH_PORTA={p}\nPAESE={str(x.get('geolocation','')).replace(' ','_')}\nGPU={x.get('gpu_name','').replace(' ','_')}\nPREZZO={round(x['dph_total'],3)}\nPRONTA_DOPO={int(time.time()-t0)}\n")
-                  print("scheda", i, x.get("gpu_name"), x.get("geolocation"), x["dph_total"], "$/h pronta dopo", int(time.time() - t0), "s"); raise SystemExit(0)
-          raise SystemExit("nessuna scheda pronta in 3 giri")
-          PY
-      - name: Render sulla scheda
-        run: |
-          S="ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -p $SSH_PORTA $SSH_HOST"
-          C="scp -o StrictHostKeyChecking=no -P $SSH_PORTA"
-          $C pacco.tgz parte_$PARTE.txt "$SSH_HOST:/root/"
-          $S "set -e; mkdir -p /root/lavoro && tar -xzf /root/pacco.tgz -C /root/lavoro
-            ln -sfn /opt/depthx/node_modules /root/lavoro/_00_Motore/strumenti/node_modules
-            cp /root/parte_$PARTE.txt /root/lavoro/_00_Motore/strumenti/coda_vast.txt
-            nvidia-smi --query-gpu=name,driver_version --format=csv,noheader
-            cd /root/lavoro/_00_Motore/strumenti && FLAG_CHROME='$FLAG_CHROME' nohup node vast_rendi.js /root/lavoro coda_vast.txt 12 400 > rendi.out 2>&1 &"
-          T0=$(date +%s)
-          while $S "pgrep -f vast_rendi.js > /dev/null"; do sleep 10; [ $(( $(date +%s) - T0 )) -gt 2400 ] && break; done
-          echo "RENDER_S=$(( $(date +%s) - T0 ))" >> $GITHUB_ENV
-          mkdir -p uscita
-          $C "$SSH_HOST:/root/lavoro/_0*/*/*.mp4" uscita/ 2>/dev/null || echo "nessun video"
-          $C "$SSH_HOST:/root/lavoro/_00_Motore/strumenti/vast_rendi.log" uscita/vast_rendi_$PARTE.log || true
-          ls -la uscita
-      - name: Distruzione della scheda, sempre
-        if: always() && env.ISTANZA != ''
-        run: vastai destroy instance "$ISTANZA" -y || true
+          for i in $(vastai show instances --raw 2>/dev/null | python3 -c "import json,sys,os; print(' '.join(str(x['id']) for x in json.load(sys.stdin) if str(x.get('label') or '') == 'ms|'+os.environ['GITHUB_RUN_ID']+'|'+os.environ['PARTE']))" 2>/dev/null); do vastai destroy instance $i -y || true; done
       - name: Video per formato ed esito della parte
         if: always()
         run: |
@@ -260,11 +212,11 @@ jobs:
           python3 - <<'PY'
           import json, os, glob
           P = os.environ["PARTE"]; righe = [l.strip().split("|") for l in open(f"parte_{P}.txt") if "|" in l]
-          log = open(glob.glob("uscita/vast_rendi_*.log")[0], errors="replace").read() if glob.glob("uscita/vast_rendi_*.log") else ""
+          log = "".join(open(f, errors="replace").read() for f in glob.glob("uscita/vast_rendi_*.log"))
           fatti = {os.path.basename(v) for v in glob.glob("uscita/*.mp4")}
           video = {r[0]: ("prodotto" if os.path.basename(r[3]) in fatti else "NOTGO_tremolio" if f"{r[0]}: NOTGO" in log else "non prodotto") for r in righe}
-          json.dump({"parte": P, "istanza": os.environ.get("ISTANZA", ""), "paese": os.environ.get("PAESE", ""), "gpu": os.environ.get("GPU", ""), "prezzo_ora": os.environ.get("PREZZO", ""),
-                     "pronta_dopo_s": os.environ.get("PRONTA_DOPO", ""), "render_s": os.environ.get("RENDER_S", ""), "video": video}, open(f"f/esito_{P}.json", "w"))
+          sch = json.load(open(f"uscita/schede_{P}.json")) if os.path.exists(f"uscita/schede_{P}.json") else {}
+          json.dump({"parte": P, "schede": sch.get("schede", []), "registro": sch.get("registro", []), "video": video}, open(f"f/esito_{P}.json", "w"))
           PY
       - uses: actions/upload-artifact@v4
         if: always()

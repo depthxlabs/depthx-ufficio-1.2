@@ -1,0 +1,52 @@
+# Verifica prima del render, senza schede a noleggio: per ogni casa e versione controlli di arredo e camera, mobili per stanza,
+# errori della pagina e 6 fotogrammi su tutta la durata, su macchine di GitHub in parallelo. I fotogrammi tornano come risultato del giro.
+name: Materiale social 02 Verifica
+on:
+  workflow_dispatch:
+    inputs:
+      pagine:
+        description: "Pagine da verificare, separate da spazi (prodotto/casa/codice/index.html?o=v&ver=N)"
+        required: true
+      modo:
+        description: "Formato: orizzontale, verticale o post"
+        default: "verticale"
+permissions:
+  contents: read
+jobs:
+  elenco:
+    runs-on: ubuntu-latest
+    outputs:
+      pagine: ${{ steps.e.outputs.pagine }}
+    steps:
+      - id: e
+        env: { PAGINE: "${{ inputs.pagine }}" }
+        run: python3 -c "import json,os; print('pagine=' + json.dumps(os.environ['PAGINE'].split()))" >> $GITHUB_OUTPUT
+  verifica:
+    needs: elenco
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        pagina: ${{ fromJSON(needs.elenco.outputs.pagine) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Libreria 3D dal repository privato depthx-libreria-3d-1.2
+        uses: actions/checkout@v4
+        with: { repository: depthxlabs/depthx-libreria-3d-1.2, ssh-key: "${{ secrets.CHIAVE_LIBRERIA_SOCIALE }}", path: libreria }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: Verifica
+        env: { PAGINA: "${{ matrix.pagina }}", MODO: "${{ inputs.modo }}" }
+        run: |
+          mkdir -p lavoro && cp -r _06_MaterialeSocial/_01_MotoreProduzione lavoro/_00_Motore && cp -r _06_MaterialeSocial/_02_Case/_01_FloorView _06_MaterialeSocial/_02_Case/_02_Unfold lavoro/
+          mkdir -p lavoro/_00_Motore/assets/libreria && cp -r libreria/modelli libreria/materiali lavoro/_00_Motore/assets/libreria/
+          cd lavoro/_00_Motore/strumenti && npm i --silent --no-audit --no-fund puppeteer-core@25.17.0 > /dev/null
+          N=$(echo "$PAGINA" | sed 's|/codice/index.html?o=.&ver=|_v|; s|/|_|g')
+          echo "NOME=$N" >> $GITHUB_ENV
+          CHROME=/usr/bin/google-chrome FLAG_CHROME="--use-angle=swiftshader --enable-unsafe-swiftshader" timeout 1500 node verifica.js "$GITHUB_WORKSPACE/lavoro" "$PAGINA" "$MODO" "$GITHUB_WORKSPACE/esito/$N" 2>&1 | grep -E "\| arredo|ERRORE" | tee "$GITHUB_WORKSPACE/esito/riga.txt" || true
+          mv "$GITHUB_WORKSPACE/esito/riga.txt" "$GITHUB_WORKSPACE/esito/$N/riga.txt" 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: "verifica-${{ env.NOME }}", path: esito/, retention-days: 3 }

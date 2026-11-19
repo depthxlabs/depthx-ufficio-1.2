@@ -66,7 +66,7 @@ export function applicaMateriali(M) {
     const tinta = ['tessuto', 'tessutoScuro', 'lino'].includes(chiave);
     m.map = tinta ? null : prep(t.col); m.normalMap = morbido ? null : prep(t.nor); m.roughnessMap = prep(t.rou); m.aoMap = tinta ? null : prep(t.ao);
     if (m.normalScale) m.normalScale.set(0.8, 0.8);
-    if (pav || ['quarzo', 'noce', 'rovere'].includes(chiave)) m.color = new THREE.Color(0xffffff); m.roughness = 1; m.metalness = 0; m.needsUpdate = true;
+    if (pav || ['quarzo', 'noce', 'rovere', 'prato'].includes(chiave)) m.color = new THREE.Color(0xffffff); m.roughness = 1; m.metalness = 0; m.needsUpdate = true;
     m.userData.metriTrama = t.metri;
   }
 }
