@@ -102,13 +102,24 @@ def lavora(hp, righe):
     C = ["scp", "-o", "StrictHostKeyChecking=no", "-P", hp[1]]
     open("coda_scheda.txt", "w").write("\n".join(righe) + "\n")
     subprocess.run(C + [PACCO, "coda_scheda.txt", f"{hp[0]}:/root/"], check=True, timeout=600)
-    S(hp, "set -e; mkdir -p /root/lavoro && tar -xzf /root/" + os.path.basename(PACCO) + " -C /root/lavoro; ln -sfn /opt/depthx/node_modules /root/lavoro/_00_Motore/strumenti/node_modules; "
-          "cp /root/coda_scheda.txt /root/lavoro/_00_Motore/strumenti/coda_vast.txt; rm -f /root/lavoro/_00_Motore/strumenti/stato.json /root/lavoro/_00_Motore/strumenti/vast_rendi.log; "
-          f"cd /root/lavoro/_00_Motore/strumenti && SOGLIA_GLITCH='{os.environ.get('SOGLIA_GLITCH', '0')}' FLAG_CHROME='{os.environ['FLAG_CHROME']}' setsid nohup node vast_rendi.js /root/lavoro coda_vast.txt 12 400 > rendi.out 2>&1 < /dev/null & sleep 2; echo avviato", 120)
+    try:
+        S(hp, "set -e; mkdir -p /root/lavoro && tar -xzf /root/" + os.path.basename(PACCO) + " -C /root/lavoro; ln -sfn /opt/depthx/node_modules /root/lavoro/_00_Motore/strumenti/node_modules; "
+              "cp /root/coda_scheda.txt /root/lavoro/_00_Motore/strumenti/coda_vast.txt; rm -f /root/lavoro/_00_Motore/strumenti/stato.json /root/lavoro/_00_Motore/strumenti/vast_rendi.log; "
+              f"cd /root/lavoro/_00_Motore/strumenti && SOGLIA_GLITCH='{os.environ.get('SOGLIA_GLITCH', '0')}' FLAG_CHROME='{os.environ['FLAG_CHROME']}' setsid nohup node vast_rendi.js /root/lavoro coda_vast.txt 12 400 > rendi.out 2>&1 < /dev/null & sleep 2; echo avviato", 120)
+    except subprocess.TimeoutExpired:
+        scrivi("avvio lento: controllo se il render è partito")
+    for _ in range(12):
+        try:
+            if S(hp, "pgrep -f '[v]ast_rendi.js' >/dev/null && echo vivo", 30).stdout.startswith("vivo"): break
+        except subprocess.TimeoutExpired: pass
+        time.sleep(10)
+    else:
+        raise RuntimeError("il render non è partito")
     t0, ultimo, fermo_da, esito, inizio_render = time.time(), -1, time.time(), "finito", None
     time.sleep(20 + SFASA % 15)
     while True:
-        r = S(hp, "pgrep -f '[v]ast_rendi.js' >/dev/null && echo vivo; cat /root/lavoro/_00_Motore/strumenti/stato.json 2>/dev/null; echo; wc -l < /root/lavoro/_00_Motore/strumenti/vast_rendi.log 2>/dev/null", 30).stdout
+        try: r = S(hp, "pgrep -f '[v]ast_rendi.js' >/dev/null && echo vivo; cat /root/lavoro/_00_Motore/strumenti/stato.json 2>/dev/null; echo; wc -l < /root/lavoro/_00_Motore/strumenti/vast_rendi.log 2>/dev/null", 30).stdout
+        except subprocess.TimeoutExpired: time.sleep(15); continue  # risposta lenta della scheda: si riprova, non è un blocco
         vivo = r.startswith("vivo"); parti = (r[4:] if vivo else r).strip().split(chr(10))
         try: f = json.loads(chr(10).join(parti[:-1])).get("fotogrammi", 0) if len(parti) > 1 and parti[0].strip() else -1
         except Exception: f = -1
