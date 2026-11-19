@@ -421,8 +421,8 @@ export function costruisci(scene, M, P, opz = {}) {
   if (auto) {
     const LM = libreria(M, { lampade: [] }); const cache = new Map();
     const misura = (tipo, o = {}) => { const k = tipo + JSON.stringify(o); if (!cache.has(k)) { const g = new THREE.Group(); LM[tipo](g, { ...o, luce: false }); g.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(g); cache.set(k, { lx0: b.min.x, lx1: b.max.x, lz0: b.min.z, lz1: b.max.z, h: b.max.y }); } return cache.get(k); };
-    const r = arredaAuto(P, misura); P.arredo = r.arredo; if (!P.ordine) P.ordine = r.ordine;
-    if (typeof window !== 'undefined') window.__arredoAuto = r;
+    const r = arredaAuto(P, misura); P.arredo = r.arredo.concat(P.extra || []); if (!P.ordine) P.ordine = r.ordine; // extra: pezzi messi a mano dove la ricerca automatica non trova posto, controllati come gli altri
+    if (typeof window !== 'undefined') { window.__arredoAuto = { ...r, arredo: P.arredo }; window.__pianta = P; }
   }
 
   // Unfold senza porta o percorso nella pianta: porta dalla blindata e percorso a piedi automatici

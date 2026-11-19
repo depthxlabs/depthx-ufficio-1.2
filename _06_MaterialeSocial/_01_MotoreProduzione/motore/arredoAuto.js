@@ -213,6 +213,11 @@ export function arredaAuto(P, misura) {
 
   const fSoggiorno = (k) => {
     const cu = conCucina.has(k) ? fCucina(k, false) : null;
+    // tavoloPrima: nei soggiorni stretti il tavolo da pranzo si mette prima di divano e TV (scelta della pianta)
+    const prima = (sInfo(ids[k]) || {}).tavoloPrima; let tavoloFatto = false;
+    if (prima && cu) for (const L of [1.4, 1.2]) { // accanto alla cucina, così divano e TV hanno il loro spazio
+      const r = piazza(k, 'tavolo', { L, P: 0.8, n: 2, luce: luci < 6 }, { muro: false, rots: [0, 90], giro: 0.4, prove: 200, pref: (c, ctx) => -Math.hypot(c.cx - cu.x, c.cz - cu.z) * 4 + lontanoPorte(c, ctx) * 0.2 });
+      if (r) { if (r.o.luce) luci++; tavoloFatto = true; break; } }
     let tv = null, div = null;
     for (const TL of [2.0, 1.8, 1.6]) {
       tv = piazza(k, 'mobileTV', { L: TL }, { muro: true, clr: 1.6, prove: 60, pref: (c, ctx) => centro(c) + (finestraDietro(c, ctx) ? -3 : 0) + (cu ? Math.min(4, Math.hypot(c.cx - cu.x, c.cz - cu.z)) * 0.6 : 0) + (portaSulMuro(c, ctx) ? -0.5 : 0),
@@ -237,14 +242,17 @@ export function arredaAuto(P, misura) {
       for (const s of [1, -1]) { const [x, z] = loc(div, s * (div.o.L / 2 + 0.3), -0.25); if (metti(k, 'lampada', { luce: luci < 6 }, x, z, 0)) { luci++; break; } }
       if (div.aMuro) { const [dx, dz] = dirFronte(div.r); const fp = div.fp; const x = dz ? (fp[0] + fp[2]) / 2 : (dx > 0 ? fp[0] - 0.006 : fp[2] + 0.006), z = dz ? (dz > 0 ? fp[1] - 0.006 : fp[3] + 0.006) : (fp[1] + fp[3]) / 2; posa(k, 'quadro', { w: 1.2, h: 0.8, y: 1.5, v: k % 3 }, x, z, div.r, [x, z, x, z]); }
     }
-    if (!(sInfo(ids[k]) || {}).senzaTavolo) fTavolo(k, [2.0, 1.8, 1.6, 1.4, 1.2], cu ? { x: cu.x, z: cu.z } : null); // senzaTavolo: open space con la cucina e il suo tavolo in una zona accanto
+    if (!(sInfo(ids[k]) || {}).senzaTavolo && !tavoloFatto) fTavolo(k, [2.0, 1.8, 1.6, 1.4, 1.2], cu ? { x: cu.x, z: cu.z } : null); // senzaTavolo: open space con la cucina e il suo tavolo in una zona accanto
     angoli(k, 2, 4); tende(k);
   };
 
   const fCamera = (k, w, tipo) => {
     const piccolo = tipo === 'cameretta';
-    const letto = piazza(k, 'letto', { w, L: 2.0, plaid: ['salvia', 'terracotta', 'salvia'][k % 3], testata: piccolo ? 'salvia' : undefined }, { muro: true, clr: 0.6, lati: piccolo ? 0 : 0.55, prove: 60,
+    let letto = piazza(k, 'letto', { w, L: 2.0, plaid: ['salvia', 'terracotta', 'salvia'][k % 3], testata: piccolo ? 'salvia' : undefined }, { muro: true, clr: 0.6, lati: piccolo ? 0 : 0.55, prove: 60,
       pref: (c, ctx) => (piccolo ? angolo(c) : centro(c) * 1.5) + (finestraDietro(c, ctx) ? -2 : 0) + (portaSulMuro(c, ctx) ? -1 : 0) + lontanoPorte(c, ctx) * 0.4 });
+    // seconda ricerca del letto, solo se la prima non ha trovato posto: comodini più stretti e molte più posizioni (ogni camera ha il suo letto)
+    if (!letto) letto = piazza(k, 'letto', { w, L: 2.0, plaid: ['salvia', 'terracotta', 'salvia'][k % 3], testata: piccolo ? 'salvia' : undefined }, { muro: true, clr: 0.55, lati: piccolo ? 0 : 0.45, prove: 400,
+      pref: (c, ctx) => (piccolo ? angolo(c) : centro(c) * 1.5) + (finestraDietro(c, ctx) ? -2 : 0) + lontanoPorte(c, ctx) * 0.4 });
     if (letto) {
       const lz = letto.m.lz0 + 0.22; for (const s of piccolo ? [1, -1] : [1, -1]) { const [x, z] = loc(letto, s * (w / 2 + 0.15 + 0.23), lz); if (metti(k, 'comodino', {}, x, z, letto.r) && piccolo) break; }
       if (!piccolo) { const [dx, dz] = dirFronte(letto.r); const fp = letto.fp; const x = dz ? (fp[0] + fp[2]) / 2 : (dx > 0 ? fp[0] - 0.006 : fp[2] + 0.006), z = dz ? (dz > 0 ? fp[1] - 0.006 : fp[3] + 0.006) : (fp[1] + fp[3]) / 2; posa(k, 'quadro', { w: 1.0, h: 0.7, y: 1.5, v: (k + 1) % 3 }, x, z, letto.r, [x, z, x, z]); }
