@@ -117,8 +117,7 @@ def lavora(hp, righe):
         if not vivo: break
         if f < 0:  # controllo anti tremolio prima del render: avanza se il registro cresce; al massimo 12 minuti
             if righe_log != ultimo: ultimo, fermo_da = righe_log, time.time()
-            if time.time() - fermo_da > 4 * 60: esito = "bloccata"; scrivi("controllo anti tremolio fermo da 4 minuti: scheda bloccata"); break
-            if time.time() - t0 > 12 * 60: esito = "bloccata"; scrivi("controllo anti tremolio oltre 12 minuti: scheda bloccata"); break
+            if time.time() - t0 > 20 * 60: esito = "bloccata"; scrivi("controllo anti tremolio oltre 20 minuti: scheda bloccata"); break
         else:
             if inizio_render is None: inizio_render, ultimo, fermo_da = time.time(), -2, time.time()
             if f != ultimo: ultimo, fermo_da = f, time.time()
