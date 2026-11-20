@@ -67,9 +67,10 @@ def piano():
         if manca <= 0:
             continue
         chi = list(quote) if o[1].strip().lower() in ("", "tutti") else [n.strip() for n in o[1].split(",") if n.strip() in quote]
-        # prima le città dell'obiettivo (se ci sono), poi i dintorni: tutte le altre città attive in ordine di priorità
+        # with the zones of the research (starting city and its surroundings, nearest first) the engines stay there, in that order;
+        # without zones, every active city in order of priority
         scelte = [c.strip().lower() for c in o[5].split(",") if c.strip()]
-        zone_ob = [z for z in zone if z[0].lower() in scelte] + [z for z in zone if z[0].lower() not in scelte]
+        zone_ob = sorted([z for z in zone if z[0].lower() in scelte], key=lambda z: scelte.index(z[0].lower())) if scelte else zone
         for nome in chi:
             if manca <= 0 or nome in occupati or not zone_ob:
                 continue
