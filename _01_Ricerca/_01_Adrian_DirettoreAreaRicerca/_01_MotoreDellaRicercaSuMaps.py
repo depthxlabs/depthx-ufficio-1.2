@@ -21,23 +21,23 @@ CHIAVE_MAPS = CARTELLA_CHIAVI + r"\_03_ChiavePlacesUfficio1.2.txt"
 
 # I ricercatori su Maps: parole di ricerca, tipo, sigla dell'ID e foglio Google
 RICERCATORI = {
-    "Anna":  {"ruolo": "Ricerca agenzie immobiliari da Maps", "parole": ["agenzia immobiliare"], "tipo": "agenzia", "sigla": "ANN",
+    "Anna":  {"ruolo": "Ricerca agenzie immobiliari da Maps", "parole": ["agenzia immobiliare"], "tipo": "agenzia", "sigla": "AGM",
               "foglio": "11Xfyu2Q3laVgP5pzw003xML0ZUur_4bq-lac9cb3T-E"},
-    "Brian": {"ruolo": "Ricerca agenti immobiliari singoli", "parole": ["agente immobiliare", "consulente immobiliare"], "tipo": "agente", "sigla": "BRI",
+    "Brian": {"ruolo": "Ricerca agenti immobiliari singoli", "parole": ["agente immobiliare", "consulente immobiliare"], "tipo": "agente", "sigla": "AGS",
               "foglio": "1oLoNTwnXOpvMdt2OsgD7R_eIxZOiiTo8iyk9dYPVlyA"},
-    "Mia":   {"ruolo": "Ricerca agenzie di immobili di lusso", "parole": ["agenzia immobiliare di lusso", "immobili di prestigio", "luxury real estate"], "tipo": "agenzia lusso", "sigla": "MIA",
+    "Mia":   {"ruolo": "Ricerca agenzie di immobili di lusso", "parole": ["agenzia immobiliare di lusso", "immobili di prestigio", "luxury real estate"], "tipo": "agenzia lusso", "sigla": "LUS",
               "foglio": "1ZduNopPwanAVeuAFMZa12AghAkMyA351-Fswn5-ttyU"},
-    "Kera":  {"ruolo": "Ricerca case vacanza", "parole": ["casa vacanza", "affittacamere", "bed and breakfast"], "tipo": "casa vacanza", "sigla": "KER",
+    "Kera":  {"ruolo": "Ricerca case vacanza", "parole": ["casa vacanza", "affittacamere", "bed and breakfast"], "tipo": "casa vacanza", "sigla": "CAV",
               "foglio": "1mnTcNUB9ZG0h12b9tWinbGDKYted-22hxVDB-_qeYwY"},
-    "Liam":  {"ruolo": "Ricerca costruttori e imprese edili", "parole": ["impresa edile", "impresa di costruzioni"], "tipo": "costruttore", "sigla": "LIA",
+    "Liam":  {"ruolo": "Ricerca costruttori e imprese edili", "parole": ["impresa edile", "impresa di costruzioni"], "tipo": "costruttore", "sigla": "COS",
               "foglio": "1NsTzPQL3q60XnrZTV_DfKqvI56VVFAeJ4wK0ovPBVt0"},
-    "Ester": {"ruolo": "Ricerca affitti brevi, singoli e gestori", "parole": ["gestione affitti brevi", "property manager affitti brevi"], "tipo": "gestore affitti brevi", "sigla": "EST",
+    "Ester": {"ruolo": "Ricerca affitti brevi, singoli e gestori", "parole": ["gestione affitti brevi", "property manager affitti brevi"], "tipo": "gestore affitti brevi", "sigla": "AFB",
               "foglio": "1gV9wtsHOLLpT65YQy85dhO1vcYj3HilvLmFn4ISrsAo"},
-    "Mark":  {"ruolo": "Ricerca architetti", "parole": ["studio di architettura", "architetto"], "tipo": "architetto", "sigla": "MAR",
+    "Mark":  {"ruolo": "Ricerca architetti", "parole": ["studio di architettura", "architetto"], "tipo": "architetto", "sigla": "ARC",
               "foglio": "1k6ITm11B3cqDor36ZuV_9eFstFSZc3AiT_GVWNp7pi0"},
-    "Elen":  {"ruolo": "Ricerca studi di interni", "parole": ["interior design", "studio di interior design"], "tipo": "studio interni", "sigla": "ELE",
+    "Elen":  {"ruolo": "Ricerca studi di interni", "parole": ["interior design", "studio di interior design"], "tipo": "studio interni", "sigla": "INT",
               "foglio": "13a46HtzCDMseN8WXiO9JsLx66ADDVUZE71_vHQ-5lFw"},
-    "Leo":   {"ruolo": "Ricerca geometri", "parole": ["geometra", "studio tecnico geometra"], "tipo": "geometra", "sigla": "LEO",
+    "Leo":   {"ruolo": "Ricerca geometri", "parole": ["geometra", "studio tecnico geometra"], "tipo": "geometra", "sigla": "GEO",
               "foglio": "1RCLlxhoPB2eMDOiY8DeVdGaHXIRVHT8MooE-5RqxiSg"},
 }
 # Tutti i fogli della Ricerca, per il controllo dei doppioni (regola 1)
