@@ -1,24 +1,23 @@
-"""MOTORE DELLA RICERCA SU BRAVE, Ufficio 1.2 Planimetrie 3D, area Ricerca (capo area Adrian).
+"""MOTORE DELLA RICERCA SU GOOGLE, Ufficio 1.2 Planimetrie 3D, area Ricerca (capo area Adrian).
 
-Lo usano Max (agenzie presenti sui portali), Sam (progetti non ancora pronti) e Brian (profili Instagram pubblici degli agenti), Mia (agenzie di lusso), Nora (annunci di privati).
-I portali bloccano le visite automatiche, quindi non si aprono mai: si usa Brave Search API, la ricerca ufficiale
-che restituisce le pagine dei portali già pubblicate sul web (regola 7: mai aggirare blocchi o captcha).
-1. Brave trova le pagine della zona sui portali (agenzie per Max, nuove costruzioni e crowdfunding per Sam).
-2. Dal titolo della pagina prende il nome; una seconda ricerca Brave trova il sito ufficiale.
+Lo usano Max (agenzie presenti sui portali), Sam (progetti non ancora pronti), Brian (profili Instagram pubblici degli agenti),
+Mia (agenzie di lusso) e Nora (annunci di privati).
+I portali bloccano le visite automatiche, quindi non si aprono mai: si usa la ricerca classica di Google, aperta con Chrome
+senza nessun account, che restituisce le pagine dei portali già pubblicate sul web.
+Se Google mostra la verifica anti robot, la ricerca non la aggira mai: quella ricerca si salta e il giro continua (regola 7).
+1. Google trova le pagine della zona sui portali (agenzie per Max, nuove costruzioni e crowdfunding per Sam).
+2. Dal titolo della pagina prende il nome; una seconda ricerca Google trova il sito ufficiale.
 3. Dal sito ufficiale prende l'email pubblicata, con le stesse regole del motore di Maps.
 4. Scarta chi non ha sito o email e chi è già in un foglio della Ricerca; scrive fino alla quota.
 
-Brave: credito gratuito di circa 1.000 ricerche al mese. Ogni contatto costa al massimo 2 ricerche.
-Uso:  python -I _03_MotoreDellaRicercaSuBrave.py --dipendente Max --citta Milano --provincia MI --quota 10
+Uso:  python -I _03_MotoreDellaRicercaSuGoogle.py --dipendente Max --citta Milano --provincia MI --quota 10
 """
 import argparse, datetime, json, os, re, sys, time, urllib.parse
-import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import importlib
-M = importlib.import_module("_01_MotoreDellaRicercaSuMaps")  # stato, registro, turni di Google Sheet, lettura dei siti
+M = importlib.import_module("_01_MotoreDellaRicercaSuMaps")  # stato, registro, CSV della ricerca, lettura dei siti
 
-CHIAVE_BRAVE = r"C:\_02_DepthXSoftware\_01_CentroGestioneDepthX\V1.0(161126_1124)\_01_StrumentiDiLavoroPerIlServer\_01_ChiaviAccessiServiziTerzeParti\_05_Brave\_01_ChiaveBraveSearchUfficio1.2.txt"
 PORTALI = ("immobiliare.it", "idealista.it", "casa.it", "subito.it", "wikicasa.it", "walliance.eu", "recrowd.com",
            "concrete-investing.com", "rendimentoetico.it", "facebook.com", "instagram.com", "linkedin.com", "paginegialle.it",
            "youtube.com", "tiktok.com", "google.", "wikipedia.org", "tripadvisor.", "virgilio.it", "kijiji", "trovit.",
@@ -29,57 +28,93 @@ RICERCATORI = {
             "foglio": "12FYuOBjRHmsMpAw7zQ6xkqBPBNFzjATExikSSiskM08",
             "ricerche": ["site:immobiliare.it/agenzie-immobiliari {citta}", "site:idealista.it/pro {citta} agenzia",
                          "site:casa.it/agenzie {citta}"],
-            "strumento": "Brave Search API (pagina agenzia sul portale) + sito"},
+            "strumento": "Ricerca Google (pagina agenzia sul portale) + sito"},
     "Brian": {"ruolo": "Ricerca agenti immobiliari singoli", "tipo": "agente", "sigla": "AGS",
               "foglio": "1oLoNTwnXOpvMdt2OsgD7R_eIxZOiiTo8iyk9dYPVlyA",
               "ricerche": ['site:instagram.com "real estate agent" {citta}', 'site:instagram.com "RE/MAX" agent {citta}',
                            'site:instagram.com Tecnocasa agente {citta}', 'site:instagram.com "Engel & Völkers" {citta}',
                            'site:instagram.com Gabetti agente {citta}', 'site:instagram.com "agente immobiliare" {citta}'],
-              "strumento": "Brave Search API (profilo Instagram pubblico)"},
+              "strumento": "Ricerca Google (profilo Instagram pubblico)"},
     "Nora": {"ruolo": "Ricerca privati con annunci sui portali", "tipo": "privato", "sigla": "PRV",
              "foglio": "1INosFpaC02tQIKCvgZBUkTWaCceWz7HVa9Ce0ELivSQ",
              "ricerche": ['site:subito.it vendita appartamento privato planimetria {citta}', 'site:immobiliare.it privato planimetria vendita {citta}',
                           'site:idealista.it privato planimetria {citta}'],
-             "strumento": "Brave Search API (annuncio di privato sul portale)"},
+             "strumento": "Ricerca Google (annuncio di privato sul portale)"},
     "Mia": {"ruolo": "Ricerca agenzie di immobili di lusso", "tipo": "agenzia lusso", "sigla": "LUS",
             "foglio": "1ZduNopPwanAVeuAFMZa12AghAkMyA351-Fswn5-ttyU",
             "ricerche": ["agenzia immobiliare di lusso {citta}", "immobili di prestigio {citta} agenzia", "luxury real estate {citta}",
                          "Lionard {citta}", "Engel & Völkers {citta}", "Sotheby's International Realty {citta}", "Coldwell Banker {citta} prestigio"],
-            "strumento": "Brave Search API (agenzie di lusso) + sito"},
+            "strumento": "Ricerca Google (agenzie di lusso) + sito"},
     "Sam": {"ruolo": "Ricerca progetti non ancora pronti", "tipo": "progetto non ancora pronto", "sigla": "PRG",
             "foglio": "1HpITMZXbXpEdVjUhiShQpH-TARhIjORwzEL2Ie9l1gE",
             "ricerche": ["site:immobiliare.it/nuove-costruzioni {citta}", "nuova costruzione residenziale {citta} appartamenti in vendita classe A",
                          "nuovo complesso residenziale {citta} cantiere", "site:walliance.eu {citta}", "site:recrowd.com {citta}"],
-            "strumento": "Brave Search API (nuove costruzioni e crowdfunding) + sito"},
+            "strumento": "Ricerca Google (nuove costruzioni e crowdfunding) + sito"},
 }
-ULTIMA_BRAVE = {"t": 0.0, "usate": 0}
+GOOGLE = {"t": 0.0, "usate": 0, "saltate": 0, "verifica": 0, "pagina": None, "chrome": None, "pw": None}
+PAUSA_GOOGLE = 4          # secondi tra due ricerche Google
+VERIFICHE_MASSIME = 2     # dopo due verifiche anti robot di fila il giro smette di usare Google e scrive ciò che ha trovato
+# i risultati organici della pagina: titolo, indirizzo e testo di ognuno
+LEGGI_RISULTATI = """() => [...document.querySelectorAll('#search a h3')].map(h => {
+  const a = h.closest('a'), box = a.closest('div.MjjYud, div.g, div[data-hveid]') || a.parentElement;
+  const testo = box ? ((box.querySelector('.VwiC3b, [data-sncf], .IsZvec') || {}).innerText || '') : '';
+  return { url: a.href, title: h.innerText, description: testo };
+})"""
 
 
-def chiave_brave():
-    k = (os.environ.get("CHIAVE_BRAVE_SEARCH") or open(CHIAVE_BRAVE, encoding="utf-8-sig").read()).strip().lstrip("Feff")
-    if not k.startswith("BSA"):
-        sys.exit("Chiave Brave non trovata.")
-    return k
+def apri_chrome():
+    """Chrome già presente sulla macchina di GitHub, senza account e senza profilo salvato."""
+    from playwright.sync_api import sync_playwright
+    GOOGLE["pw"] = sync_playwright().start()
+    try:
+        chrome = GOOGLE["pw"].chromium.launch(channel="chrome", headless=True)
+    except Exception:
+        chrome = GOOGLE["pw"].chromium.launch(headless=True)
+    contesto = chrome.new_context(locale="it-IT", user_agent=M.AGENTE, viewport={"width": 1280, "height": 900})
+    GOOGLE["chrome"], GOOGLE["pagina"] = chrome, contesto.new_page()
 
 
-def brave(q, chiave, quanti=20):
-    attesa = ULTIMA_BRAVE["t"] + 1.2 - time.time()  # mai più di una ricerca al secondo
+def google(q, quanti=20):
+    """Una ricerca classica su Google; con la verifica anti robot la ricerca si salta, mai aggirata."""
+    if GOOGLE["verifica"] >= VERIFICHE_MASSIME:
+        return []
+    if GOOGLE["pagina"] is None:
+        apri_chrome()
+    attesa = GOOGLE["t"] + PAUSA_GOOGLE - time.time()
     if attesa > 0:
         time.sleep(attesa)
-    ULTIMA_BRAVE["t"] = time.time(); ULTIMA_BRAVE["usate"] += 1
-    r = requests.get("https://api.search.brave.com/res/v1/web/search", timeout=30,
-                     headers={"X-Subscription-Token": chiave, "Accept": "application/json"},
-                     params={"q": q, "count": quanti, "country": "IT", "search_lang": "it"})
-    if r.status_code == 429:
-        M.scrivi_registro("Brave chiede di rallentare: attendo 20 secondi"); time.sleep(20)
-        return brave(q, chiave, quanti)
-    if r.status_code != 200:
-        sys.exit(f"Brave Search: HTTP {r.status_code}")
-    # Brave dice quante ricerche restano: secondo e mese (es. "1, 987"); il pannello di Adrian lo mostra
-    rimaste = r.headers.get("X-RateLimit-Remaining", "")
-    if "," in rimaste:
-        M.STATO["braveRimasteMese"] = rimaste.split(",")[-1].strip()
-    return r.json().get("web", {}).get("results", [])
+    GOOGLE["t"] = time.time(); GOOGLE["usate"] += 1
+    pagina = GOOGLE["pagina"]
+    try:
+        pagina.goto("https://www.google.com/search?" + urllib.parse.urlencode({"q": q, "hl": "it", "gl": "it", "num": quanti}),
+                    wait_until="domcontentloaded", timeout=45000)
+        if "consent.google" in pagina.url:
+            # la scelta più riservata sui cookie: rifiuta tutto
+            for testo in ("Rifiuta tutto", "Reject all"):
+                bottone = pagina.get_by_role("button", name=testo)
+                if bottone.count():
+                    bottone.first.click(); pagina.wait_for_load_state("domcontentloaded"); break
+        if "/sorry/" in pagina.url or pagina.locator("#captcha-form, iframe[src*='recaptcha']").count():
+            GOOGLE["verifica"] += 1; GOOGLE["saltate"] += 1
+            M.scrivi_registro(f"Google mostra la verifica anti robot: ricerca saltata ({q})")
+            return []
+        GOOGLE["verifica"] = 0
+        pagina.wait_for_selector("#search", timeout=15000)
+        return [r for r in pagina.evaluate(LEGGI_RISULTATI) if r.get("url", "").startswith("http") and "google." not in dominio(r["url"])]
+    except Exception as e:
+        GOOGLE["saltate"] += 1
+        M.scrivi_registro(f"Google non ha risposto ({type(e).__name__}): ricerca saltata ({q})")
+        return []
+
+
+def chiudi_chrome():
+    try:
+        if GOOGLE["chrome"]:
+            GOOGLE["chrome"].close()
+        if GOOGLE["pw"]:
+            GOOGLE["pw"].stop()
+    except Exception:
+        pass
 
 
 def dominio(u):
@@ -105,7 +140,6 @@ def main():
     a.add_argument("--quota", type=int, default=10)
     p = a.parse_args()
     cfg = RICERCATORI[p.dipendente]
-    chiave = chiave_brave()
     M.FOGLIO["id"] = cfg["foglio"]
     M.stato(dipendente=p.dipendente, ruolo=cfg["ruolo"], inCorso=True, attivita="Avvio", zona=f"{p.citta} ({p.provincia})",
             quota=p.quota, scritte=0, rimanenti=p.quota, sitiLetti=0, agenzieTrovate=0, scartati={}, sitoAttuale="", ultime=[],
@@ -127,8 +161,8 @@ def main():
     candidati = []
     for modello in cfg["ricerche"]:
         q = modello.format(citta=p.citta)
-        M.stato(attivita=f"Cerca su Brave: {q}")
-        for ris in brave(q, chiave):
+        M.stato(attivita=f"Cerca su Google: {q}")
+        for ris in google(q):
             u, nome = ris.get("url", ""), nome_dal_titolo(ris.get("title", ""))
             testo = (ris.get("title", "") + " " + ris.get("description", "")).lower()
             # per i profili Instagram la città è già nella ricerca: non si chiede che compaia anche nel risultato
@@ -137,7 +171,7 @@ def main():
             if "immobiliare.it/agenzie-immobiliari/" in u and not re.search(r"/agenzie-immobiliari/\d+/", u):
                 continue  # pagina elenco delle agenzie, non una singola agenzia
             visti.add(nome.lower()); candidati.append((nome, u, ris.get("description", "")))
-    M.stato(attivita=f"Brave: {len(candidati)} candidati, controllo uno per uno", agenzieTrovate=len(candidati))
+    M.stato(attivita=f"Google: {len(candidati)} candidati, controllo uno per uno", agenzieTrovate=len(candidati))
 
     link_noti = set()
     if p.dipendente == "Nora":  # gli annunci già scritti da Nora, per non ripeterli
@@ -163,7 +197,7 @@ def main():
             M.stato(scritte=len(nuove), rimanenti=p.quota - len(nuove),
                     ultime=([{"id": nuove[-1][0], "nome": nome, "email": "modulo del portale"}] + M.STATO["ultime"])[:5])
             continue
-        # profilo Instagram (Brian): l'email si prende solo se è scritta nella bio pubblica mostrata da Brave
+        # profilo Instagram (Brian): l'email si prende solo se è scritta nella bio pubblica mostrata da Google
         if "instagram.com/" in link:
             if not re.match(r"https?://(www\.)?instagram\.com/[A-Za-z0-9_.]+/?$", link):
                 scarta("non è un profilo", nome); continue
@@ -184,7 +218,7 @@ def main():
         sito = "" if e_portale(link) else f"https://{dominio(link)}/"
         if not sito:
             M.stato(attivita=f"Cerca il sito ufficiale di {nome}")
-            for ris in brave(f'"{nome}" {p.citta}', chiave, 10):
+            for ris in google(f'"{nome}" {p.citta}', 10):
                 if not e_portale(ris.get("url", "")):
                     sito = f"https://{dominio(ris['url'])}/"; break
         if not sito:
@@ -217,14 +251,15 @@ def main():
                           params={"valueInputOption": "RAW", "insertDataOption": "INSERT_ROWS"}, json={"values": nuove}))
         r.raise_for_status()
     M.stato(inCorso=False, attivita="Finito", fine=datetime.datetime.now().isoformat(timespec="seconds"),
-            esito=f"{len(nuove)} righe scritte su quota {p.quota}, {ULTIMA_BRAVE['usate']} ricerche Brave usate", scartati=scarti)
+            esito=f"{len(nuove)} righe scritte su quota {p.quota}, {GOOGLE['usate']} ricerche Google, {GOOGLE['saltate']} saltate", scartati=scarti)
     print(json.dumps({"dipendente": p.dipendente, "zona": f"{p.citta} ({p.provincia})", "righe_scritte": len(nuove),
-                      "ricerche_brave": ULTIMA_BRAVE["usate"], "scartati": scarti}, ensure_ascii=False))
+                      "ricerche_google": GOOGLE["usate"], "saltate": GOOGLE["saltate"], "scartati": scarti}, ensure_ascii=False))
 
 
 if __name__ == "__main__":
     try:
         main()
+        chiudi_chrome()
     except SystemExit as e:
         if e.code not in (0, None) and M.FOGLIO["id"]:
             M.stato(inCorso=False, attivita="Fermata per errore", esito=str(e.code), fine=datetime.datetime.now().isoformat(timespec="seconds"))

@@ -4,8 +4,10 @@ Adrian gestisce l'area Ricerca: obiettivi, zone, quote e agenti. Hector coordina
 Il suo strumento è il foglio "_00_ZoneEQuote" (schede Obiettivi, Zone, Ricercatori, Assegnazioni, Quote servizi).
 Michele scrive l'obiettivo dal pannello di Adrian nel Centro Gestione; Adrian lo divide tra i suoi ricercatori.
 
-  --fase piano      ogni 10 minuti: per ogni obiettivo attivo non ancora raggiunto dà a ogni suo ricercatore libero
-                    la prossima zona non ancora fatta, con quota = il minimo tra la sua quota e quanto manca.
+  --fase piano      a ogni giro: per ogni obiettivo attivo non ancora raggiunto dà a ogni suo ricercatore libero
+                    la prossima zona che quel ricercatore non ha mai fatto, con quota = il minimo tra la sua quota e quanto manca.
+                    Le zone sono tutti i comuni nel raggio della ricerca, dal più vicino; quando un ricercatore li ha fatti tutti
+                    il raggio si allarga di 20 km e i comuni nuovi si aggiungono in fondo: nessuna città si ripete.
                     Senza obiettivi attivi non assegna niente e non consuma minuti.
   --fase controllo  ogni ora: per ogni assegnazione aperta guarda se il ricercatore ha finito, scrive l'esito
                     e le righe scritte davvero (righe del foglio adesso meno righe al momento dell'assegnazione),
@@ -13,15 +15,16 @@ Michele scrive l'obiettivo dal pannello di Adrian nel Centro Gestione; Adrian lo
 Google Sheet: una richiesta ogni 6 secondi, come tutti i dipendenti.
 """
 import argparse, datetime, json, os, re, sys
+import requests
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import importlib
 M = importlib.import_module("_01_MotoreDellaRicercaSuMaps")
-B = importlib.import_module("_03_MotoreDellaRicercaSuBrave")
+G = importlib.import_module("_03_MotoreDellaRicercaSuGoogle")
 
 ZONE_E_QUOTE = "1Sr9qOixgP9_snFesfBHcBoVSBxW8YKCAIJvPLHmGRIA"
 URL = f"https://sheets.googleapis.com/v4/spreadsheets/{ZONE_E_QUOTE}/values"
-FOGLI = {**{n: c["foglio"] for n, c in M.RICERCATORI.items()}, **{n: c["foglio"] for n, c in B.RICERCATORI.items()}}
-MOTORI = {n: (["maps"] if n in M.RICERCATORI else []) + (["brave"] if n in B.RICERCATORI else []) for n in FOGLI}
+FOGLI = {**{n: c["foglio"] for n, c in M.RICERCATORI.items()}, **{n: c["foglio"] for n, c in G.RICERCATORI.items()}}
+MOTORI = {n: (["maps"] if n in M.RICERCATORI else []) + (["google"] if n in G.RICERCATORI else []) for n in FOGLI}
 # La fonte di ogni ricercatore, cioè la cartella del Download su Drive dove finirà il suo materiale
 FONTE = {"Anna": "agenzie", "Max": "agenzie", "Brian": "agenzie", "Mia": "agenzie",
          "Liam": "costruttori", "Mark": "costruttori", "Elen": "costruttori", "Leo": "costruttori",
@@ -30,6 +33,9 @@ ORA = lambda: datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 # Assegnazioni: Data e ora | Ricercatore | Città | Provincia | Quota | Assegnata da | Esito | Righe prima | Obiettivo
 # Passaggi al Download: Data e ora | Da | A | Ricercatore | Fonte | Foglio | Prima riga | Ultima riga | Quanti | Stato | Note
 # Obiettivi:    Obiettivo | Ricercatori | Contatti da raggiungere | Dal | Entro | Zone | Raggiunti | Stato
+# RaggiDelleRicerche: Obiettivo | Città di partenza | Latitudine | Longitudine | Raggio km
+PASSO_KM, RAGGIO_INIZIALE_KM, RAGGIO_MASSIMO_KM = 20, 30, 400
+AGENTE_WEB = {"User-Agent": "DepthX-Ricerca/1.0 (zone della ricerca)", "Accept": "application/json"}
 
 
 def leggi(intervallo):
@@ -48,8 +54,65 @@ def righe_del_foglio(nome):
     return len(r.json().get("values", []))
 
 
+def comuni_intorno(lat, lon, km):
+    """Tutti i comuni italiani entro km dal punto, dal più vicino, con la sigla della provincia (Wikidata)."""
+    q = ('SELECT ?nome ?sigla ?dist WHERE { SERVICE wikibase:around { ?c wdt:P625 ?pos . '
+         f'bd:serviceParam wikibase:center "Point({lon} {lat})"^^geo:wktLiteral . bd:serviceParam wikibase:radius "{km}" . '
+         'bd:serviceParam wikibase:distance ?dist . } ?c wdt:P31 wd:Q747074 . ?c wdt:P131 ?prov . ?prov wdt:P395 ?sigla . '
+         '?c rdfs:label ?nome . FILTER(lang(?nome)="it") } ORDER BY ?dist LIMIT 3000')
+    r = requests.get("https://query.wikidata.org/sparql", params={"query": q, "format": "json"}, headers=AGENTE_WEB, timeout=120)
+    r.raise_for_status()
+    visti, comuni = set(), []
+    for x in r.json()["results"]["bindings"]:
+        nome = x["nome"]["value"]
+        if nome.lower() not in visti:
+            visti.add(nome.lower()); comuni.append((nome, x["sigla"]["value"]))
+    return comuni
+
+
+def allarga_le_zone(o, riga_obiettivo, zone_note):
+    """Il raggio della ricerca si allarga di 20 km finché trova comuni nuovi: si aggiungono in fondo alle zone dell'obiettivo."""
+    raggi = leggi("RaggiDelleRicerche!A2:E200")
+    k = next((n for n, r in enumerate(raggi) if r and r[0] == o[0]), None)
+    if k is None:
+        partenza = o[5].split(",")[0].strip()
+        luogo = requests.get("https://nominatim.openstreetmap.org/search", headers=AGENTE_WEB, timeout=60,
+                             params={"city": partenza, "country": "Italia", "format": "jsonv2", "limit": 1}).json()
+        if not luogo:
+            return []
+        r = [o[0], partenza, luogo[0]["lat"], luogo[0]["lon"], str(RAGGIO_INIZIALE_KM)]
+    else:
+        r = raggi[k] + [""] * (5 - len(raggi[k]))
+    gia = {c.strip().lower() for c in o[5].split(",") if c.strip()}
+    raggio, nuovi = int(float(r[4] or RAGGIO_INIZIALE_KM)), []
+    while not nuovi and raggio < RAGGIO_MASSIMO_KM:
+        raggio += PASSO_KM
+        nuovi = [(c, s) for c, s in comuni_intorno(r[2], r[3], raggio) if c.lower() not in gia]
+    r[4] = str(raggio)
+    if os.environ.get("SOLO_PROVA"):
+        return nuovi
+    if k is None:
+        M.con_riprova(lambda: M.SESSIONE.post(f"{URL}/RaggiDelleRicerche!A1:append", params={"valueInputOption": "USER_ENTERED",
+                      "insertDataOption": "INSERT_ROWS"}, json={"values": ([["Obiettivo", "Città di partenza", "Latitudine", "Longitudine", "Raggio km"]] if not raggi else []) + [r]})).raise_for_status()
+    else:
+        scrivi(f"RaggiDelleRicerche!A{k + 2}:E{k + 2}", [r])
+    if nuovi:
+        scrivi(f"Obiettivi!F{riga_obiettivo}", [[", ".join([o[5]] + [c for c, _ in nuovi])]])
+        priorita = max([int(z[4]) for z in zone_note if len(z) > 4 and str(z[4]).isdigit()] + [0])
+        note = {z[0].lower() for z in zone_note if z}
+        righe = []
+        for c, s in nuovi:
+            if c.lower() not in note:
+                priorita += 1; righe.append([c, s, "", "sì", priorita])
+        if righe:
+            M.con_riprova(lambda: M.SESSIONE.post(f"{URL}/Zone!A1:append", params={"valueInputOption": "USER_ENTERED",
+                          "insertDataOption": "INSERT_ROWS"}, json={"values": righe})).raise_for_status()
+    print(f"{o[0]}: raggio {raggio} km, {len(nuovi)} comuni nuovi")
+    return nuovi
+
+
 def piano():
-    zone = sorted([z for z in leggi("Zone!A2:E200") if len(z) >= 4 and z[3].strip().lower() == "sì"],
+    zone = sorted([z for z in leggi("Zone!A2:E2000") if len(z) >= 4 and z[3].strip().lower() == "sì"],
                   key=lambda z: int(z[4]) if len(z) > 4 and str(z[4]).isdigit() else 999)
     quote = {r[0]: int(r[2]) for r in leggi("Ricercatori!A2:E50")
              if len(r) >= 3 and r[1].strip().lower() == "sì" and str(r[2]).isdigit() and r[0] in FOGLI}
@@ -69,8 +132,17 @@ def piano():
         chi = list(quote) if o[1].strip().lower() in ("", "tutti") else [n.strip() for n in o[1].split(",") if n.strip() in quote]
         # with the zones of the research (starting city and its surroundings, nearest first) the engines stay there, in that order;
         # without zones, every active city in order of priority
+        fatte_da = lambda nome: {a[2] for a in storia if len(a) > 2 and a[1] == nome}
         scelte = [c.strip().lower() for c in o[5].split(",") if c.strip()]
         zone_ob = sorted([z for z in zone if z[0].lower() in scelte], key=lambda z: scelte.index(z[0].lower())) if scelte else zone
+        # a free researcher with every zone already done: the radius widens before it is given work, so no city repeats
+        if scelte and any(n not in occupati and all(z[0] in fatte_da(n) for z in zone_ob) for n in chi):
+            nuovi = allarga_le_zone(o, i, leggi("Zone!A2:E2000"))
+            if nuovi:
+                o[5] = ", ".join([o[5]] + [c for c, _ in nuovi])
+                zone += [[c, s, "", "sì", ""] for c, s in nuovi if c.lower() not in {z[0].lower() for z in zone}]
+                scelte = [c.strip().lower() for c in o[5].split(",") if c.strip()]
+                zone_ob = sorted([z for z in zone if z[0].lower() in scelte], key=lambda z: scelte.index(z[0].lower()))
         for nome in chi:
             if manca <= 0 or nome in occupati or not zone_ob:
                 continue
@@ -83,7 +155,7 @@ def piano():
             q = min(quote[nome], manca)
             manca -= q
             occupati.add(nome)
-            lavori.append(f"{nome}|{z[0]}|{z[1]}|{q}|{'maps' if 'maps' in MOTORI[nome] else ''}|{'brave' if 'brave' in MOTORI[nome] else ''}")
+            lavori.append(f"{nome}|{z[0]}|{z[1]}|{q}|{'maps' if 'maps' in MOTORI[nome] else ''}|{'google' if 'google' in MOTORI[nome] else ''}")
             nuove.append([ORA(), nome, z[0], z[1], q, "Adrian", "assegnata", righe_del_foglio(nome), o[0]])
     if nuove and not os.environ.get("SOLO_PROVA"):
         M.con_riprova(lambda: M.SESSIONE.post(f"{URL}/Assegnazioni!A1:append", params={"valueInputOption": "USER_ENTERED",

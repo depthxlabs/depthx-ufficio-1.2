@@ -22,17 +22,16 @@ jobs:
         with: { repository: depthxlabs/depthx-dati-1.2, ssh-key: "${{ secrets.CHIAVE_DATI_RICERCA }}", path: dati, sparse-checkout: _01_ListaCRM }
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install requests
+      - run: pip install requests playwright
       - name: Brian al lavoro su Google Maps
         env:
           CHIAVE_GOOGLE_MAPS: ${{ secrets.CHIAVE_GOOGLE_MAPS }}
           PYTHONIOENCODING: utf-8
           TZ: Europe/Rome
         run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_01_MotoreDellaRicercaSuMaps.py" --dipendente Brian --citta "${{ inputs.citta }}" --provincia "${{ inputs.provincia }}" --quota "${{ inputs.quota }}"
-      - name: Brian al lavoro su Instagram (profili pubblici tramite Brave)
+      - name: Brian al lavoro su Instagram (profili pubblici tramite Google)
         if: always()
         env:
-          CHIAVE_BRAVE_SEARCH: ${{ secrets.CHIAVE_BRAVE_SEARCH }}
           PYTHONIOENCODING: utf-8
           TZ: Europe/Rome
-        run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_03_MotoreDellaRicercaSuBrave.py" --dipendente Brian --citta "${{ inputs.citta }}" --provincia "${{ inputs.provincia }}" --quota "${{ inputs.quota }}"
+        run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_03_MotoreDellaRicercaSuGoogle.py" --dipendente Brian --citta "${{ inputs.citta }}" --provincia "${{ inputs.provincia }}" --quota "${{ inputs.quota }}"

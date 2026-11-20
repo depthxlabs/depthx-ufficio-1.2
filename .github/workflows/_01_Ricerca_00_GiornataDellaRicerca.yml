@@ -1,7 +1,7 @@
 # La giornata della Ricerca (Ufficio 1.2 Planimetrie 3D): Adrian assegna zone e quote dal foglio "_00_ZoneEQuote",
-# i ricercatori lavorano al massimo 6 alla volta (Google Sheet: 60 richieste al minuto), poi Adrian scrive gli esiti.
+# i ricercatori lavorano tutti insieme, poi Adrian scrive gli esiti.
 # Parte da sola ogni 10 minuti: Adrian dà lavoro a chi è libero, solo se c'è un obiettivo attivo non ancora raggiunto.
-# Ogni voce dell'elenco: dipendente|città|provincia|quota|maps|brave
+# Ogni voce dell'elenco: dipendente|città|provincia|quota|maps|google
 name: Ricerca 00 Ciclo della Ricerca ogni 10 minuti (Adrian)
 on:
   schedule:
@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      max-parallel: 6
+      max-parallel: 13
       matrix:
         voce: ${{ fromJSON(needs.piano.outputs.lavori) }}
     steps:
@@ -52,13 +52,13 @@ jobs:
         env:
           VOCE: ${{ matrix.voce }}
           CHIAVE_GOOGLE_MAPS: ${{ secrets.CHIAVE_GOOGLE_MAPS }}
-          CHIAVE_BRAVE_SEARCH: ${{ secrets.CHIAVE_BRAVE_SEARCH }}
         run: |
-          IFS='|' read -r NOME CITTA PROV QUOTA MAPS BRAVE <<< "$VOCE"
+          IFS='|' read -r NOME CITTA PROV QUOTA MAPS GOOGLE <<< "$VOCE"
           DIR="_01_Ricerca/_01_Adrian_DirettoreAreaRicerca"
           ESITO=0
           if [ "$MAPS" = "maps" ]; then python -I "$DIR/_01_MotoreDellaRicercaSuMaps.py" --dipendente "$NOME" --citta "$CITTA" --provincia "$PROV" --quota "$QUOTA" || ESITO=1; fi
-          if [ "$BRAVE" = "brave" ]; then python -I "$DIR/_03_MotoreDellaRicercaSuBrave.py" --dipendente "$NOME" --citta "$CITTA" --provincia "$PROV" --quota "$QUOTA" || ESITO=1; fi
+          # Google classico con il Chrome della macchina di GitHub, senza account
+          if [ "$GOOGLE" = "google" ]; then pip install -q playwright && python -I "$DIR/_03_MotoreDellaRicercaSuGoogle.py" --dipendente "$NOME" --citta "$CITTA" --provincia "$PROV" --quota "$QUOTA" || ESITO=1; fi
           exit $ESITO
   chiusura:
     name: Adrian controlla chi ha finito
