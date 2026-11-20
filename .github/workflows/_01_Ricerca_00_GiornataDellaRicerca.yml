@@ -90,11 +90,6 @@ jobs:
       - run: pip install requests
       - id: stato
         run: python -I "_01_Ricerca/_01_Adrian_DirettoreAreaRicerca/_04_AdrianOrganizzaLaGiornata.py" --fase stato
-      - name: Download subito, se c'è da scaricare
-        if: steps.stato.outputs.da_scaricare != '0'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh workflow run _02_Download_00_CicloDiMike.yml -R "${{ github.repository }}"
       - name: Giro successivo della Ricerca, senza sosta
         if: steps.stato.outputs.attivo == 'si'
         env:
