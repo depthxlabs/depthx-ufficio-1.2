@@ -51,17 +51,29 @@ const NOMI_FOGLI = { '1Sr9qOixgP9_snFesfBHcBoVSBxW8YKCAIJvPLHmGRIA': '_00_ZoneEQ
   '1HpITMZXbXpEdVjUhiShQpH-TARhIjORwzEL2Ie9l1gE': '_12_Sam_ProgettiNonAncoraPronti', '1ZduNopPwanAVeuAFMZa12AghAkMyA351-Fswn5-ttyU': '_13_Mia' };
 const fileCSV = (foglio, scheda) => { const n = NOMI_FOGLI[foglio]; if (!n) throw new Error('Foglio sconosciuto');
   return n === '_00_ZoneEQuote' ? `_00_ZoneEQuote/${scheda}.csv` : scheda === 'Stato' ? `_00_Stato/${n}.csv` : `${n}.csv`; };
+// reads a CSV by slices of text, not character by character: the calendar of the mails passes from 15 seconds to a few milliseconds
 function leggiCSV(testo) {
-  const righe = []; let riga = [], campo = '', virgolette = false;
-  for (let i = 0; i < testo.length; i++) {
-    const c = testo[i];
-    if (virgolette) { if (c === '"') { if (testo[i + 1] === '"') { campo += '"'; i++; } else virgolette = false; } else campo += c; }
-    else if (c === '"') virgolette = true;
-    else if (c === ',') { riga.push(campo); campo = ''; }
-    else if (c === '\n' || c === '\r') { if (c === '\r' && testo[i + 1] === '\n') i++; riga.push(campo); righe.push(riga); riga = []; campo = ''; }
-    else campo += c;
+  const righe = [], n = testo.length; let riga = [], i = 0;
+  if (!n) return righe;
+  const finoAlSeparatore = da => { let k = da; while (k < n) { const c = testo.charCodeAt(k); if (c === 44 || c === 10 || c === 13) break; k++; } return k; };
+  while (i < n) {
+    let campo = '';
+    if (testo[i] === '"') {
+      let j = i + 1;
+      for (;;) {
+        const k = testo.indexOf('"', j);
+        if (k < 0) { campo += testo.slice(j); i = n; break; }
+        campo += testo.slice(j, k);
+        if (testo[k + 1] === '"') { campo += '"'; j = k + 2; } else { i = k + 1; break; }
+      }
+      const k = finoAlSeparatore(i); campo += testo.slice(i, k); i = k;
+    } else { const k = finoAlSeparatore(i); campo = testo.slice(i, k); i = k; }
+    riga.push(campo);
+    if (i >= n) { righe.push(riga); break; }
+    if (testo[i] === ',') { i++; if (i >= n) { riga.push(''); righe.push(riga); } continue; }
+    righe.push(riga); riga = [];
+    i += testo[i] === '\r' && testo[i + 1] === '\n' ? 2 : 1;
   }
-  if (campo || riga.length) { riga.push(campo); righe.push(riga); }
   return righe;
 }
 const scriviCSV = righe => righe.map(r => r.map(v => { v = v == null ? '' : String(v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(',')).join('\r\n') + '\r\n';
@@ -316,7 +328,7 @@ async function statoRicerca() {
       const area = AREA_DEL_MOTORE[a[1]]; if (!area) continue;
       const x = perArea[area.nome] || (perArea[area.nome] = { area: area.nome, contatti: 0, zoneFatte: [], inCorso: '' });
       const m = (a[6] || '').match(/fatto: (\d+) righe/);
-      if (m) { x.contatti += +m[1]; x.zoneFatte.push(a[2]); }
+      if (m) { x.contatti += +m[1]; if (!x.zoneFatte.includes(a[2])) x.zoneFatte.push(a[2]); }
       if (a[6] === 'assegnata') {
         // live: the rows arrived in the area CSV since the assignment
         const arrivate = Math.max(0, tabella(path.join(CRM_RICERCA, area.file)).length - numeroDi(a[7]));
@@ -421,8 +433,15 @@ const CALENDARIO_B2B = MAIL_B2B + '/_02_CalendarioDegliInvii.csv';
 const APERTA = stato => ['in attesa', 'da approvare', 'approvata'].includes(stato);
 const COLONNE_ESCLUSI = ['ID', 'Tipo', 'Nome', 'Città', 'Provincia', 'Sito', 'Email', 'Instagram', 'Data invio', 'Canale Invio', 'Tipo di esclusione', 'Data esito', 'Note', 'Testo Messaggio'];
 const GIORNO_UNO_B2B = new Date('2026-11-20T00:00:00');
-const tabella = file => { try { const [testa, ...righe] = leggiCSV(fs.readFileSync(file, 'utf8').replace(/^﻿/, '')).filter(r => r.some(Boolean));
-  return righe.map(r => Object.fromEntries(testa.map((c, i) => [c, r[i] || '']))); } catch { return []; } };
+// every CSV is read again only when it changes on the disk; each call gets its own copy of the rows
+const tabelleLette = {};
+const tabella = file => { try {
+  const s = fs.statSync(file), firma = s.mtimeMs + ':' + s.size;
+  if (!tabelleLette[file] || tabelleLette[file].firma !== firma) {
+    const [testa, ...righe] = leggiCSV(fs.readFileSync(file, 'utf8').replace(/^﻿/, '')).filter(r => r.some(Boolean));
+    tabelleLette[file] = { firma, righe: righe.map(r => Object.fromEntries(testa.map((c, i) => [c, r[i] || '']))) };
+  }
+  return tabelleLette[file].righe.map(r => ({ ...r })); } catch { return []; } };
 const salvaTabella = (file, colonne, righe) => fs.writeFileSync(file, scriviCSV([colonne, ...righe.map(r => colonne.map(c => r[c] || ''))]));
 const csvDi = cartella => { try { return fs.readdirSync(cartella).filter(n => /^_\d\d_.+\.csv$/.test(n)).sort(); } catch { return []; } };
 const emailDi = t => ((t || '').match(/[\w.+-]+@[\w-]+\.[\w.-]+/) || [''])[0].toLowerCase().replace(/\.$/, '');
