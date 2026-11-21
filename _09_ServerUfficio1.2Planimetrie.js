@@ -365,9 +365,12 @@ async function statoRicerca() {
     if (attiva.stimaOre != null) attiva.arrivoPrevisto = new Date(Date.now() + attiva.stimaOre * 36e5 - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 16).replace('T', ' ');
   }
   const ultimo = Math.max(0, ...obiettivi.map(o => +(((o[0] || '').match(/^Ricerca(\d{3})$/) || [0, 0])[1])));
-  return { attiva, avvio: AVVIO_RICERCA, storico: ricerche.reverse(), prossimoCodice: 'Ricerca' + String(ultimo + 1).padStart(3, '0'), aree: AREE_RICERCA.map(a => a.nome) };
+  const avvio = AVVIO_RICERCA && { ...AVVIO_RICERCA, trascorsiSecondi: Math.round((Date.now() - AVVIO_RICERCA.inizio) / 1000) };
+  return { attiva, avvio, storico: ricerche.reverse(), prossimoCodice: 'Ricerca' + String(ultimo + 1).padStart(3, '0'), aree: AREE_RICERCA.map(a => a.nome) };
 }
-let AVVIO_RICERCA = null;   // the start in progress: { codice, fase } while zones are found and the research is written
+let AVVIO_RICERCA = null;   // the start in progress: { codice, fase, passo, inizio, stimaSecondi } until the researchers are at work on GitHub
+// seconds of the last start, from the click to the researchers at work; 60 until the first start is measured
+let SECONDI_ULTIMO_AVVIO = 60;
 async function avviaRicerca(d) {
   const stato = await statoRicerca();
   if (stato.attiva) return { ok: false, errore: `C'è già una ricerca attiva: ${stato.attiva.codice}.` };
@@ -378,13 +381,13 @@ async function avviaRicerca(d) {
   if (!(quanti > 0)) return { ok: false, errore: "Serve l'obiettivo di contatti." };
   if (!citta) return { ok: false, errore: 'Serve la zona di partenza.' };
   if (!aree.length) return { ok: false, errore: 'Serve almeno un\'area di ricerca.' };
-  AVVIO_RICERCA = { codice: stato.prossimoCodice, fase: 'trovo la zona di partenza e i comuni intorno', citta };
+  AVVIO_RICERCA = { codice: stato.prossimoCodice, fase: 'trovo la zona di partenza e i comuni intorno', citta, passo: 1, passi: 4, inizio: Date.now(), stimaSecondi: SECONDI_ULTIMO_AVVIO };
   avviaInFondo(stato, quanti, raggio, citta, aree).catch(e => { AVVIO_RICERCA = { ...AVVIO_RICERCA, errore: e.message, fase: 'NOTGO: ' + e.message }; });
   return { ok: true, codice: stato.prossimoCodice, inAvvio: true };
 }
 async function avviaInFondo(stato, quanti, raggio, citta, aree) {
   const zone = await zoneIntorno(citta, raggio);
-  AVVIO_RICERCA.fase = `scrivo la ricerca su ${zone.length} zone per i motori`;
+  Object.assign(AVVIO_RICERCA, { passo: 2, fase: `scrivo la ricerca su ${zone.length} zone per i motori` });
   // the zones not yet known to the engines are added, active, after the existing ones
   const esistenti = await leggiIntervallo(ZONE_E_QUOTE, 'Zone!A2:E500');
   const note = new Set(esistenti.map(z => (z[0] || '').toLowerCase()));
@@ -400,10 +403,23 @@ async function avviaInFondo(stato, quanti, raggio, citta, aree) {
     [stato.prossimoCodice, citta, zone.centro.lat, zone.centro.lon, raggio]]);
   delete cache.adrian;
   // the research cycle starts now, without waiting for its next 10 minute turn
+  Object.assign(AVVIO_RICERCA, { passo: 3, fase: 'faccio partire il giro dei motori su GitHub' });
   const token = fs.readFileSync(TOKEN_GITHUB, 'utf8').trim();
   await richiesta(`https://api.github.com/repos/${REPO_UFFICIO}/actions/workflows/${CICLO_RICERCA}/dispatches`,
     { method: 'POST', headers: { 'User-Agent': 'DepthX-CentroGestione', Accept: 'application/vnd.github+json', Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' } },
     JSON.stringify({ ref: 'main' })).catch(() => null);
+  // the start ends when the researchers are at work on GitHub: its seconds become the estimate of the next start
+  Object.assign(AVVIO_RICERCA, { passo: 4, fase: 'Adrian assegna le zone e i ricercatori partono su GitHub' });
+  const inizio = AVVIO_RICERCA.inizio;
+  for (let n = 0; n < 60 && AVVIO_RICERCA; n++) {
+    await pausa(5000);
+    try {
+      const giro = ((await apiGitHub(`repos/${REPO_UFFICIO}/actions/workflows/${CICLO_RICERCA}/runs?event=workflow_dispatch&per_page=1`)).workflow_runs || [])[0];
+      if (!giro || new Date(giro.created_at) < inizio - 60000) continue;
+      const lavori = (await apiGitHub(`repos/${REPO_UFFICIO}/actions/runs/${giro.id}/jobs?per_page=30`)).jobs || [];
+      if (lavori.some(j => !/^Adrian/.test(j.name) && j.started_at)) { SECONDI_ULTIMO_AVVIO = Math.round((Date.now() - inizio) / 1000); break; }
+    } catch {}
+  }
   AVVIO_RICERCA = null;
 }
 
